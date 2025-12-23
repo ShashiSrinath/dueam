@@ -143,11 +143,17 @@ pub async fn get_auth_url(app_handle: &AppHandle) {
 
         match res {
             Ok(account) => {
-                let manager = AccountManager::new(app_handle);
-                if let Err(e) = manager.add_account(Account::Google(account.clone())).await {
-                    let _ = app_handle.emit("google-account-error", e);
-                } else {
-                    let _ = app_handle.emit("google-account-added", account);
+                match AccountManager::new(app_handle).await {
+                    Ok(manager) => {
+                        if let Err(e) = manager.add_account(Account::Google(account.clone())).await {
+                            let _ = app_handle.emit("google-account-error", e);
+                        } else {
+                            let _ = app_handle.emit("google-account-added", account);
+                        }
+                    }
+                    Err(e) => {
+                        let _ = app_handle.emit("google-account-error", e);
+                    }
                 }
             }
             Err(e) => {

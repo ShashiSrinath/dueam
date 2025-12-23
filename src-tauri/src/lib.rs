@@ -9,9 +9,7 @@ pub fn run() {
     dotenvy::dotenv().ok();
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_stronghold::Builder::new(|password| {
-            password.to_string().into_bytes()
-        }).build())
+        .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![login_with_google, get_accounts, remove_account])
         .run(tauri::generate_context!())
