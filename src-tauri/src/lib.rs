@@ -11,7 +11,7 @@ async fn setup_database(app_handle: &AppHandle) -> Result<SqlitePool, String> {
     let app_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&app_dir).map_err(|e| e.to_string())?;
     let db_path = app_dir.join("dream-email.db");
-    
+
     log::info!("Database path: {:?}", db_path);
 
     let options = SqliteConnectOptions::new()
@@ -33,18 +33,17 @@ pub fn run() {
     dotenvy::dotenv().ok();
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let handle = app.handle().clone();
-            
+
             // Block on database setup to ensure it's ready before any commands run
             let pool = tauri::async_runtime::block_on(async {
                 setup_database(&handle).await
             }).expect("Failed to setup database");
 
             app.manage(pool);
-            
+
             let sync_handle = handle.clone();
             tauri::async_runtime::spawn(async move {
                 let sync_engine = SyncEngine::new(sync_handle);

@@ -21,64 +21,64 @@ pub type Result<T> = result::Result<T, Error>;
 pub enum Error {
     #[error("cannot build IMAP client: missing TLS provider")]
     BuildTlsClientMissingProvider,
-    #[error("cannot build IMAP client")]
+    #[error("cannot build IMAP client: {0}")]
     JoinClientError(#[source] JoinError),
-    #[error("cannot build IMAP client")]
+    #[error("cannot build IMAP client: {0}")]
     BuildClientError(#[source] Box<Error>),
-    #[error("cannot connect to IMAP server {1}:{2} using TCP")]
+    #[error("cannot connect to IMAP server {1}:{2} using TCP: {0}")]
     BuildInsecureClientError(#[source] ClientError, String, u16),
-    #[error("cannot connect to IMAP server {1}:{2} using STARTTLS")]
+    #[error("cannot connect to IMAP server {1}:{2} using STARTTLS: {0}")]
     BuildStartTlsClientError(#[source] ClientError, String, u16),
-    #[error("cannot connect to IMAP server {1}:{2} using SSL/TLS")]
+    #[error("cannot connect to IMAP server {1}:{2} using SSL/TLS: {0}")]
     BuildTlsClientError(#[source] ClientError, String, u16),
 
-    #[error("cannot get imap password from global keyring")]
+    #[error("cannot get imap password from global keyring: {0}")]
     GetPasswdImapError(#[source] secret::Error),
     #[error("cannot get imap password: password is empty")]
     GetPasswdEmptyImapError,
-    #[error("cannot reset imap password")]
+    #[error("cannot reset imap password: {0}")]
     ResetPasswordError(#[source] account::Error),
-    #[error("cannot reset oauth secrets")]
+    #[error("cannot reset oauth secrets: {0}")]
     ResetOAuthSecretsError(#[source] account::Error),
-    #[error("cannot refresh oauth access token")]
+    #[error("cannot refresh oauth access token: {0}")]
     RefreshAccessTokenError(#[source] account::Error),
     #[error("cannot get access token: {0}")]
     AccessTokenNotAvailable(#[source] account::Error),
     #[error("replacing unidentified to keyring failed: {0}")]
     ReplacingUnidentifiedFailed(#[source] secret::Error),
 
-    #[error("cannot execute imap action after 3 retries")]
+    #[error("cannot execute imap action after 3 retries: {0}")]
     ExecuteActionRetryError(#[source] AnyBoxedError),
-    #[error("cannot execute imap action due to password authentication failure")]
+    #[error("cannot execute imap action due to password authentication failure: {0}")]
     ExecuteActionPasswordError(#[source] AnyBoxedError),
-    #[error("cannot execute imap action due to oauth authorization failure")]
+    #[error("cannot execute imap action due to oauth authorization failure: {0}")]
     ExecuteActionOAuthError(#[source] AnyBoxedError),
 
     // ================ v2
 
     // parse
-    #[error("cannot parse IMAP mailbox {1}")]
+    #[error("cannot parse IMAP mailbox {1}: {0}")]
     ParseMailboxError(#[source] ValidationError, String),
     #[error("cannot find UID of appended IMAP message")]
     FindAppendedMessageUidError,
 
-    #[error("cannot send IMAP request")]
+    #[error("cannot send IMAP request: {0}")]
     RequestRetryError(#[source] ClientError),
-    #[error("cannot send IMAP request")]
+    #[error("cannot send IMAP request: {0}")]
     ClientRetryError(#[source] ClientError),
     #[error("cannot send IMAP request: request timed out after 3 attempts")]
     RequestRetryTimeoutError,
-    #[error("cannot enable IMAP capability")]
+    #[error("cannot enable IMAP capability: {0}")]
     EnableCapabilityError(#[source] ClientError),
-    #[error("cannot authenticate to IMAP server: no valid auth mechanism found")]
+    #[error("cannot authenticate to IMAP server: no valid auth mechanism found: {0}")]
     AuthenticateError(#[source] ClientError),
-    #[error("cannot authenticate to IMAP server using LOGIN mechanism")]
+    #[error("cannot authenticate to IMAP server using LOGIN mechanism: {0}")]
     LoginError(#[source] ClientError),
-    #[error("cannot authenticate to IMAP server using SASL PLAIN mechanism")]
+    #[error("cannot authenticate to IMAP server using SASL PLAIN mechanism: {0}")]
     AuthenticatePlainError(#[source] ClientError),
-    #[error("cannot authenticate to IMAP server using SASL XOAUTH2 mechanism")]
+    #[error("cannot authenticate to IMAP server using SASL XOAUTH2 mechanism: {0}")]
     AuthenticateXOauth2Error(#[source] ClientError),
-    #[error("cannot authenticate to IMAP server using SASL OAUTHBEARER mechanism")]
+    #[error("cannot authenticate to IMAP server using SASL OAUTHBEARER mechanism: {0}")]
     AuthenticateOAuthBearerError(#[source] ClientError),
 
     #[error("cannot create IMAP mailbox")]
