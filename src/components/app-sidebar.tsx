@@ -23,7 +23,7 @@ export function AppSidebar() {
   const accounts = useEmailStore(state => state.accounts)
   const accountFolders = useEmailStore(state => state.accountFolders)
   const init = useEmailStore(state => state.init)
-  const search = useSearch({ from: '/' })
+  const search = useSearch({ from: '/_inbox' })
 
   useEffect(() => {
     return init();

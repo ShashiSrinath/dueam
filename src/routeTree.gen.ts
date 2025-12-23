@@ -9,54 +9,81 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
+import { Route as InboxRouteImport } from './routes/_inbox'
+import { Route as InboxIndexRouteImport } from './routes/_inbox/index'
 import { Route as AccountsNewAccountRouteImport } from './routes/accounts/new-account'
+import { Route as InboxEmailEmailIdRouteImport } from './routes/_inbox/email.$emailId'
 
-const IndexRoute = IndexRouteImport.update({
+const InboxRoute = InboxRouteImport.update({
+  id: '/_inbox',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InboxIndexRoute = InboxIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => InboxRoute,
 } as any)
 const AccountsNewAccountRoute = AccountsNewAccountRouteImport.update({
   id: '/accounts/new-account',
   path: '/accounts/new-account',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InboxEmailEmailIdRoute = InboxEmailEmailIdRouteImport.update({
+  id: '/email/$emailId',
+  path: '/email/$emailId',
+  getParentRoute: () => InboxRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
   '/accounts/new-account': typeof AccountsNewAccountRoute
+  '/': typeof InboxIndexRoute
+  '/email/$emailId': typeof InboxEmailEmailIdRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
   '/accounts/new-account': typeof AccountsNewAccountRoute
+  '/': typeof InboxIndexRoute
+  '/email/$emailId': typeof InboxEmailEmailIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
+  '/_inbox': typeof InboxRouteWithChildren
   '/accounts/new-account': typeof AccountsNewAccountRoute
+  '/_inbox/': typeof InboxIndexRoute
+  '/_inbox/email/$emailId': typeof InboxEmailEmailIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/accounts/new-account'
+  fullPaths: '/accounts/new-account' | '/' | '/email/$emailId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/accounts/new-account'
-  id: '__root__' | '/' | '/accounts/new-account'
+  to: '/accounts/new-account' | '/' | '/email/$emailId'
+  id:
+    | '__root__'
+    | '/_inbox'
+    | '/accounts/new-account'
+    | '/_inbox/'
+    | '/_inbox/email/$emailId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
+  InboxRoute: typeof InboxRouteWithChildren
   AccountsNewAccountRoute: typeof AccountsNewAccountRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
+    '/_inbox': {
+      id: '/_inbox'
+      path: ''
+      fullPath: ''
+      preLoaderRoute: typeof InboxRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_inbox/': {
+      id: '/_inbox/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof InboxIndexRouteImport
+      parentRoute: typeof InboxRoute
     }
     '/accounts/new-account': {
       id: '/accounts/new-account'
@@ -65,11 +92,30 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AccountsNewAccountRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_inbox/email/$emailId': {
+      id: '/_inbox/email/$emailId'
+      path: '/email/$emailId'
+      fullPath: '/email/$emailId'
+      preLoaderRoute: typeof InboxEmailEmailIdRouteImport
+      parentRoute: typeof InboxRoute
+    }
   }
 }
 
+interface InboxRouteChildren {
+  InboxIndexRoute: typeof InboxIndexRoute
+  InboxEmailEmailIdRoute: typeof InboxEmailEmailIdRoute
+}
+
+const InboxRouteChildren: InboxRouteChildren = {
+  InboxIndexRoute: InboxIndexRoute,
+  InboxEmailEmailIdRoute: InboxEmailEmailIdRoute,
+}
+
+const InboxRouteWithChildren = InboxRoute._addFileChildren(InboxRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
+  InboxRoute: InboxRouteWithChildren,
   AccountsNewAccountRoute: AccountsNewAccountRoute,
 }
 export const routeTree = rootRouteImport

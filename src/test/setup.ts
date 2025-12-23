@@ -55,11 +55,14 @@ mock.module("@tauri-apps/api/event", () => ({
 // Global TanStack Router Mock
 mock.module("@tanstack/react-router", () => ({
   useSearch: mock(() => ({})),
+  useNavigate: mock(() => mock(() => {})),
+  useParams: mock(() => ({})),
   createFileRoute: () => (params: any) => ({
     ...params,
     useSearch: mock(() => ({})),
   }),
   Link: ({ children, to, search }: any) => React.createElement("a", { href: to, "data-search": JSON.stringify(search) }, children),
+  Outlet: () => React.createElement("div", { "data-testid": "outlet" }),
 }));
 
 afterEach(() => {

@@ -1,18 +1,15 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { createFileRoute, Outlet, useParams, Link } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
 import { format } from "date-fns";
-import { Mail, User, Clock, Paperclip, Trash2, Archive, MailOpen, Tag } from "lucide-react";
+import { Mail, Paperclip, Trash2, Archive, MailOpen, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { z } from "zod";
-import DOMPurify from "dompurify";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEmailStore, Attachment } from "@/lib/store";
+import { useEmailStore } from "@/lib/store";
 
 const inboxSearchSchema = z.object({
   accountId: z.number().optional(),
@@ -20,22 +17,21 @@ const inboxSearchSchema = z.object({
   filter: z.string().optional(),
 });
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/_inbox")({
   validateSearch: inboxSearchSchema,
-  component: InboxView,
+  component: InboxLayout,
 });
 
-export function InboxView() {
+export function InboxLayout() {
   const { accountId, folderId, filter } = Route.useSearch();
+  // @ts-ignore - this might not be available yet but will be in child routes
+  const { emailId } = useParams({ strict: false });
+  const selectedEmailId = emailId ? parseInt(emailId) : null;
+
   const emails = useEmailStore(state => state.emails);
   const loadingEmails = useEmailStore(state => state.loadingEmails);
-  const selectedEmailId = useEmailStore(state => state.selectedEmailId);
-  const emailContent = useEmailStore(state => state.emailContent);
-  const loadingContent = useEmailStore(state => state.loadingContent);
   const selectedIds = useEmailStore(state => state.selectedIds);
-  const attachments = useEmailStore(state => state.attachments);
   const fetchEmails = useEmailStore(state => state.fetchEmails);
-  const setSelectedEmailId = useEmailStore(state => state.setSelectedEmailId);
   const toggleSelect = useEmailStore(state => state.toggleSelect);
   const toggleSelectAll = useEmailStore(state => state.toggleSelectAll);
   const markAsRead = useEmailStore(state => state.markAsRead);
@@ -52,44 +48,9 @@ export function InboxView() {
   const isAllSelected = emails.length > 0 && selectedIds.size === emails.length;
   const isSomeSelected = selectedIds.size > 0 && selectedIds.size < emails.length;
 
-  const downloadAttachment = async (att: Attachment) => {
-    try {
-      const data = await invoke<number[]>("get_attachment_data", { attachmentId: att.id });
-      const blob = new Blob([new Uint8Array(data)], { type: att.mime_type || "application/octet-stream" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = att.filename || "attachment";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("Failed to download attachment:", error);
-    }
-  };
-
-  const formatSize = (bytes: number) => {
-    if (bytes === 0) return "0 B";
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
-  };
-
   useEffect(() => {
     fetchEmails({ accountId, folderId, filter });
   }, [accountId, folderId, filter, fetchEmails]);
-
-  const selectedEmail = useMemo(() => emails.find((e) => e.id === selectedEmailId), [emails, selectedEmailId]);
-
-  const sanitizedHtml = useMemo(() => {
-    if (!emailContent?.body_html) return null;
-    return DOMPurify.sanitize(emailContent.body_html, {
-      USE_PROFILES: { html: true },
-      ADD_TAGS: ["style"], 
-    });
-  }, [emailContent]);
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -97,8 +58,8 @@ export function InboxView() {
       <div className="w-1/3 border-r flex flex-col bg-muted/10">
         <div className="p-4 border-b bg-background flex justify-between items-center h-16 shrink-0">
           <div className="flex items-center gap-3">
-             <input 
-                type="checkbox" 
+             <input
+                type="checkbox"
                 className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
                 checked={isAllSelected}
                 ref={(el) => {
@@ -137,9 +98,9 @@ export function InboxView() {
                 <Separator orientation="vertical" className="h-4 mx-1" />
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
+                    <Button
+                      variant="ghost"
+                      size="icon"
                       className="h-8 w-8"
                       onClick={() => markAsRead(Array.from(selectedIds))}
                     >
@@ -160,7 +121,7 @@ export function InboxView() {
             </div>
           </div>
         )}
-        
+
         <div ref={parentRef} className="flex-1 overflow-auto">
           {loadingEmails && emails.length === 0 && (
               <div className="p-8 text-center text-muted-foreground animate-pulse">
@@ -173,7 +134,7 @@ export function InboxView() {
               <p>No emails found</p>
             </div>
           )}
-          
+
           <div
             style={{
               height: `${virtualizer.getTotalSize()}px`,
@@ -187,17 +148,20 @@ export function InboxView() {
               const isUnread = !email.flags.includes("seen");
               const isSelected = selectedIds.has(email.id);
               return (
-                <button
+                <Link
                   key={email.id}
+                  to="/email/$emailId"
+                  params={{ emailId: email.id.toString() }}
+                  search={(prev) => prev}
                   data-index={virtualItem.index}
                   ref={virtualizer.measureElement}
-                  onClick={() => setSelectedEmailId(email.id)}
                   style={{
                     position: 'absolute',
                     top: Math.round(virtualItem.start),
                     left: 0,
                     width: '100%',
                   }}
+                  preload={"render"}
                   className={cn(
                     "flex items-start gap-4 p-4 text-left border-b transition-colors hover:bg-muted/50 group antialiased",
                     selectedEmailId === email.id && "bg-muted",
@@ -206,8 +170,8 @@ export function InboxView() {
                   )}
                 >
                   <div className="pt-1 flex flex-col items-center gap-2">
-                     <input 
-                        type="checkbox" 
+                     <input
+                        type="checkbox"
                         checked={isSelected}
                         onClick={(e) => e.stopPropagation()}
                         onChange={() => toggleSelect(email.id)}
@@ -241,7 +205,7 @@ export function InboxView() {
                       </div>
                     )}
                   </div>
-                </button>
+                </Link>
               );
             })}
           </div>
@@ -250,98 +214,9 @@ export function InboxView() {
 
       {/* Email Content */}
       <div className="flex-1 flex flex-col bg-background">
-        {selectedEmail ? (
-          <div className="flex flex-col h-full">
-            <div className="p-6 border-b space-y-4">
-              <h2 className="text-2xl font-bold">{selectedEmail.subject || "(No Subject)"}</h2>
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                  <User className="w-6 h-6" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex justify-between items-center">
-                    <span className="font-semibold block truncate">
-                      {selectedEmail.sender_name}
-                    </span>
-                    <span className="text-sm text-muted-foreground flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      {format(new Date(selectedEmail.date), "PPP p")}
-                    </span>
-                  </div>
-                  <span className="text-sm text-muted-foreground block truncate">
-                    &lt;{selectedEmail.sender_address}&gt;
-                  </span>
-                </div>
-              </div>
-            </div>
-            <ScrollArea className="flex-1 p-8">
-              <div className="max-w-4xl mx-auto space-y-8">
-                {loadingContent ? (
-                  <div className="space-y-4 animate-pulse">
-                    <div className="h-4 bg-muted rounded w-3/4"></div>
-                    <div className="h-4 bg-muted rounded w-full"></div>
-                    <div className="h-4 bg-muted rounded w-5/6"></div>
-                    <div className="h-4 bg-muted rounded w-2/3"></div>
-                  </div>
-                ) : emailContent ? (
-                  <>
-                    <div className="prose prose-sm max-w-none dark:prose-invert">
-                      {sanitizedHtml ? (
-                        <div dangerouslySetInnerHTML={{ __html: sanitizedHtml }} />
-                      ) : (
-                        <pre className="whitespace-pre-wrap font-sans text-sm">
-                          {emailContent.body_text || "No content available."}
-                        </pre>
-                      )}
-                    </div>
-
-                    {attachments.length > 0 && (
-                      <div className="border-t pt-6">
-                        <h3 className="text-sm font-semibold flex items-center gap-2 mb-4">
-                          <Paperclip className="w-4 h-4" />
-                          Attachments ({attachments.length})
-                        </h3>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                          {attachments.map((att) => (
-                            <button
-                              key={att.id}
-                              onClick={() => downloadAttachment(att)}
-                              className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/50 transition-colors text-left group"
-                            >
-                              <div className="w-10 h-10 rounded bg-primary/10 flex items-center justify-center text-primary shrink-0">
-                                <Mail className="w-5 h-5" />
-                              </div>
-                              <div className="min-w-0">
-                                <p className="text-xs font-medium truncate group-hover:text-primary transition-colors">
-                                  {att.filename || "Unnamed"}
-                                </p>
-                                <p className="text-[10px] text-muted-foreground">
-                                  {formatSize(att.size)}
-                                </p>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="p-12 border-2 border-dashed rounded-2xl text-center text-muted-foreground bg-muted/5">
-                    <p className="text-lg font-medium">Failed to load content.</p>
-                  </div>
-                )}
-              </div>
-            </ScrollArea>
-          </div>
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-muted-foreground">
-            <div className="text-center">
-              <Mail className="w-16 h-16 mx-auto mb-4 opacity-10" />
-              <p>Select an email to read</p>
-            </div>
-          </div>
-        )}
+        <Outlet />
       </div>
     </div>
   );
 }
+

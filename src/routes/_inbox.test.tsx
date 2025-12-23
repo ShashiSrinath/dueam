@@ -1,9 +1,10 @@
 import "../test/setup";
 import { render, within, fireEvent, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, beforeEach, mock } from "bun:test";
-import { InboxView } from "./index";
+import { InboxLayout } from "./_inbox";
 import { mockInvoke, mockListen } from "../test/setup";
 import { useEmailStore } from "@/lib/store";
+import { useNavigate, useParams } from "@tanstack/react-router";
 
 // Mock TanStack Virtual
 mock.module("@tanstack/react-virtual", () => ({
@@ -50,20 +51,23 @@ const mockEmails = [
   },
 ];
 
-describe("InboxView", () => {
+describe("InboxLayout", () => {
   beforeEach(() => {
     mockInvoke.mockClear();
     mockListen.mockClear();
     mockInvoke.mockImplementation((command) => {
       if (command === "get_emails") return Promise.resolve(mockEmails);
-      if (command === "get_email_content") return Promise.resolve({ body_text: "Body", body_html: null });
-      if (command === "get_attachments") return Promise.resolve([]);
       return Promise.resolve();
     });
+    
+    // Clear mocks for router hooks
+    (useNavigate as any).mockClear();
+    (useParams as any).mockClear();
+    (useParams as any).mockReturnValue({});
   });
 
   it("renders email list", async () => {
-    render(<InboxView />);
+    render(<InboxLayout />);
     const screen = within(document.body);
 
     await waitFor(() => {
@@ -75,7 +79,7 @@ describe("InboxView", () => {
   });
 
   it("handles multi-select logic", async () => {
-    render(<InboxView />);
+    render(<InboxLayout />);
     const screen = within(document.body);
 
     await waitFor(() => screen.getByText("Test Email 1"));
@@ -94,24 +98,26 @@ describe("InboxView", () => {
     expect(screen.queryByText("selected")).toBeNull();
   });
 
-  it("displays email content when selected", async () => {
-    render(<InboxView />);
+  it("navigates to email when selected", async () => {
+    const mockNavigate = mock(() => {});
+    (useNavigate as any).mockReturnValue(mockNavigate);
+
+    render(<InboxLayout />);
     const screen = within(document.body);
 
     await waitFor(() => screen.getByText("Test Email 1"));
 
     fireEvent.click(screen.getByText("Test Email 1"));
 
-    await waitFor(() => {
-      expect(screen.getByText("Body")).toBeInTheDocument();
-    });
-
-    expect(mockInvoke).toHaveBeenCalledWith("get_email_content", { emailId: 1 });
+    expect(mockNavigate).toHaveBeenCalledWith(expect.objectContaining({
+      to: "/email/$emailId",
+      params: { emailId: "1" }
+    }));
   });
 
   it("refreshes email list on emails-updated event", async () => {
     useEmailStore.getState().init();
-    render(<InboxView />);
+    render(<InboxLayout />);
     const screen = within(document.body);
 
     await waitFor(() => screen.getByText("Test Email 1"));
@@ -135,3 +141,4 @@ describe("InboxView", () => {
     });
   });
 });
+

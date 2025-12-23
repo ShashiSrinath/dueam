@@ -64,11 +64,7 @@ interface EmailState {
 
   // Selected Email
   selectedEmailId: number | null;
-  emailContent: EmailContent | null;
-  attachments: Attachment[];
-  loadingContent: boolean;
   setSelectedEmailId: (id: number | null) => void;
-  fetchEmailContent: (id: number) => Promise<void>;
 
   // Multi-selection
   selectedIds: Set<number>;
@@ -84,16 +80,13 @@ interface EmailState {
   reset: () => void;
 }
 
-const initialState: Pick<EmailState, 'accounts' | 'accountFolders' | 'emails' | 'loadingEmails' | 'lastSearchParams' | 'selectedEmailId' | 'emailContent' | 'attachments' | 'loadingContent' | 'selectedIds'> = {
+const initialState: Pick<EmailState, 'accounts' | 'accountFolders' | 'emails' | 'loadingEmails' | 'lastSearchParams' | 'selectedEmailId' | 'selectedIds'> = {
   accounts: [],
   accountFolders: {},
   emails: [],
   loadingEmails: false,
   lastSearchParams: null,
   selectedEmailId: null,
-  emailContent: null,
-  attachments: [],
-  loadingContent: false,
   selectedIds: new Set<number>(),
 };
 
@@ -146,29 +139,12 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
   setSelectedEmailId: (id) => {
     if (get().selectedEmailId === id) return;
-    set({ selectedEmailId: id, emailContent: null, attachments: [] });
+    set({ selectedEmailId: id });
     if (id) {
-      get().fetchEmailContent(id);
-      
       const email = get().emails.find(e => e.id === id);
       if (email && !email.flags.includes("seen")) {
         get().markAsRead([id]);
       }
-    }
-  },
-
-  fetchEmailContent: async (id) => {
-    set({ loadingContent: true });
-    try {
-      const [content, attachments] = await Promise.all([
-        invoke<EmailContent>("get_email_content", { emailId: id }),
-        invoke<Attachment[]>("get_attachments", { emailId: id })
-      ]);
-      set({ emailContent: content, attachments });
-    } catch (error) {
-      console.error("Failed to fetch email content:", error);
-    } finally {
-      set({ loadingContent: false });
     }
   },
 
