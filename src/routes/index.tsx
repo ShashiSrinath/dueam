@@ -20,9 +20,11 @@ export const Route = createFileRoute("/")({
 
 type Account = {
   type: "google";
-  email: string;
-  name?: string;
-  picture?: string;
+  data: {
+    email: string;
+    name?: string;
+    picture?: string;
+  };
 };
 
 function App() {
@@ -115,10 +117,10 @@ function App() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-4">
                         <div className="relative group-hover:scale-110 transition-transform duration-300">
-                          {account.picture ? (
+                          {account.data.picture ? (
                             <img
-                              src={account.picture}
-                              alt={account.name || account.email}
+                              src={account.data.picture}
+                              alt={account.data.name || account.data.email}
                               className="h-12 w-12 rounded-xl object-cover border shadow-sm"
                             />
                           ) : (
@@ -139,7 +141,7 @@ function App() {
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
                             <CardTitle className="text-xl">
-                              {account.name || account.email}
+                              {account.data.name || account.data.email}
                             </CardTitle>
                             <Badge
                               variant="outline"
@@ -149,7 +151,7 @@ function App() {
                             </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground font-medium">
-                            {account.email}
+                            {account.data.email}
                           </p>
                         </div>
                       </div>

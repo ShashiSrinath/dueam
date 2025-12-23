@@ -35,6 +35,15 @@ impl Account {
             Account::Google(_) => "google",
         }
     }
+
+    pub fn strip_secrets(&mut self) {
+        match self {
+            Account::Google(a) => {
+                a.access_token = None;
+                a.refresh_token = None;
+            }
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -69,7 +78,31 @@ impl AccountManager {
         }
 
         let data = self.store.load(path)?;
-        serde_json::from_slice(&data).map_err(|e| e.to_string())
+        let mut registry: AccountRegistry = serde_json::from_slice(&data).map_err(|e| e.to_string())?;
+
+        let pool = self.app_handle.state::<SqlitePool>();
+
+        for account in &mut registry.accounts {
+            let row: Option<(i64, Option<String>, Option<String>)> = sqlx::query_as(
+                "SELECT id, name, picture FROM accounts WHERE email = ?"
+            )
+            .bind(account.email())
+            .fetch_optional(&*pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+            if let Some((id, name, picture)) = row {
+                match account {
+                    Account::Google(google) => {
+                        google.id = Some(id);
+                        google.name = name;
+                        google.picture = picture;
+                    }
+                }
+            }
+        }
+
+        Ok(registry)
     }
 
     pub async fn save(&self, registry: &AccountRegistry) -> Result<(), String> {

@@ -11,7 +11,10 @@ pub async fn login_with_google(app_handle: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn get_accounts(app_handle: AppHandle) -> Result<Vec<Account>, String> {
     let manager = AccountManager::new(&app_handle).await?;
-    let registry = manager.load().await?;
+    let mut registry = manager.load().await?;
+    for account in &mut registry.accounts {
+        account.strip_secrets();
+    }
     Ok(registry.accounts)
 }
 

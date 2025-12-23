@@ -12,7 +12,9 @@ pub struct GoogleAccount {
     pub email: String,
     pub name: Option<String>,
     pub picture: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub access_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
 }
 
@@ -141,7 +143,10 @@ pub async fn get_auth_url(app_handle: &AppHandle) {
                         if let Err(e) = manager.add_account(Account::Google(account.clone())).await {
                             let _ = app_handle.emit("google-account-error", e);
                         } else {
-                            let _ = app_handle.emit("google-account-added", account);
+                            let mut public_account = account;
+                            public_account.access_token = None;
+                            public_account.refresh_token = None;
+                            let _ = app_handle.emit("google-account-added", public_account);
                         }
                     }
                     Err(e) => {
