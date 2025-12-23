@@ -24,7 +24,7 @@ Act as a desktop email client with **multiple inboxes in the same view** (Unifie
   - [x] Incremental sync to minimize bandwidth.
 - [x] **Unified Schema**: Design a database schema that indexes emails from different providers into a single searchable table.
 
-## Phase 3: The Unified Inbox UI (In Progress)
+## Phase 3: The Unified Inbox UI (Complete)
 
 - [x] **Sidebar Navigation**:
   - [x] "Unified Inbox" (All accounts).
@@ -32,11 +32,13 @@ Act as a desktop email client with **multiple inboxes in the same view** (Unifie
   - [x] Smart Folders (Unread, Flagged, etc.).
 - [x] **Message List View**:
   - [x] Virtual scrolling for high performance.
-  - [x] Multi-select actions.
+  - [x] Multi-select actions (Delete, Archive, Mark as Read).
   - [x] Account indicators (visual cues for which inbox an email belongs to).
+  - [x] Unread status indicators (Blue dot, bold text).
 - [x] **Email Detail View**:
   - [x] Sanitized HTML rendering.
   - [x] Attachment handling.
+  - [x] Automatic "Mark as Read" on selection.
 
 ## Phase 4: Sending & Composition
 

@@ -1,5 +1,5 @@
 use crate::email_backend::accounts::commands::{login_with_google, get_accounts, remove_account};
-use crate::email_backend::emails::commands::{get_emails, get_folders, get_email_content, get_attachments, get_attachment_data};
+use crate::email_backend::emails::commands::{get_emails, get_folders, get_email_content, get_attachments, get_attachment_data, mark_as_read};
 use crate::email_backend::sync::SyncEngine;
 use sqlx::sqlite::{SqlitePool, SqliteConnectOptions};
 use tauri::{AppHandle, Manager};
@@ -60,7 +60,8 @@ pub fn run() {
             get_folders, 
             get_email_content,
             get_attachments,
-            get_attachment_data
+            get_attachment_data,
+            mark_as_read
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

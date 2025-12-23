@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Emitter};
 use sqlx::SqlitePool;
 use serde::{Deserialize, Serialize};
 use crate::email_backend::accounts::manager::AccountManager;
@@ -6,6 +6,8 @@ use email::backend::BackendBuilder;
 use email::imap::ImapContextBuilder;
 use email::message::get::GetMessages;
 use email::envelope::Id;
+use email::flag::add::AddFlags;
+use email::flag::Flag;
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Email {
@@ -41,6 +43,76 @@ pub struct Folder {
 }
 
 #[tauri::command]
+pub async fn mark_as_read<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, email_ids: Vec<i64>) -> Result<(), String> {
+    let pool = app_handle.state::<SqlitePool>();
+    
+    for email_id in email_ids {
+        // 1. Get email info
+        let email_info: Option<(i64, String, String, String)> = sqlx::query_as(
+            "SELECT e.account_id, e.remote_id, f.path, e.flags FROM emails e JOIN folders f ON e.folder_id = f.id WHERE e.id = ?"
+        )
+        .bind(email_id)
+        .fetch_optional(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        let (account_id, remote_id, folder_path, current_flags) = match email_info {
+            Some(info) => info,
+            None => continue,
+        };
+
+        // If already seen, skip
+        if current_flags.contains("\"seen\"") || current_flags.contains("seen") {
+            continue;
+        }
+
+        // 2. Update server if possible
+        let manager = AccountManager::new(&app_handle).await?;
+        if let Ok(account) = manager.get_account_by_id(account_id).await {
+            if let Ok((account_config, imap_config)) = account.get_configs() {
+                let backend_builder = BackendBuilder::new(
+                    account_config.clone(),
+                    ImapContextBuilder::new(account_config, imap_config),
+                );
+
+                if let Ok(backend) = backend_builder.build().await {
+                    let id = Id::single(remote_id);
+                    let _ = backend.add_flag(&folder_path, &id, Flag::Seen).await;
+                }
+            }
+        }
+
+        // 3. Update database
+        let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+        // Update flags
+        let mut flags: Vec<String> = serde_json::from_str(&current_flags).unwrap_or_default();
+        if !flags.contains(&"seen".to_string()) {
+            flags.push("seen".to_string());
+        }
+
+        sqlx::query("UPDATE emails SET flags = ? WHERE id = ?")
+            .bind(serde_json::to_string(&flags).unwrap_or_default())
+            .bind(email_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Update folder unread count
+        sqlx::query("UPDATE folders SET unread_count = MAX(0, unread_count - 1) WHERE id = (SELECT folder_id FROM emails WHERE id = ?)")
+            .bind(email_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        tx.commit().await.map_err(|e| e.to_string())?;
+    }
+
+    let _ = app_handle.emit("emails-updated", ());
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn get_emails<R: tauri::Runtime>(
     app_handle: tauri::AppHandle<R>, 
     account_id: Option<i64>, 
@@ -65,8 +137,8 @@ pub async fn get_emails<R: tauri::Runtime>(
 
     if let Some(f) = filter {
         match f.as_str() {
-            "unread" => query_parts.push("flags NOT LIKE '%\\\\Seen%'"),
-            "flagged" => query_parts.push("flags LIKE '%\\\\Flagged%'"),
+            "unread" => query_parts.push("flags NOT LIKE '%seen%'"),
+            "flagged" => query_parts.push("flags LIKE '%flagged%'"),
             _ => {}
         }
     }
@@ -253,7 +325,7 @@ mod tests {
         .bind("Test Subject")
         .bind("sender@example.com")
         .bind(Utc::now().to_rfc3339())
-        .bind("[]")
+        .bind("[\"seen\"]")
         .bind("Hello content")
         .fetch_one(pool)
         .await

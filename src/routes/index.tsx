@@ -113,6 +113,15 @@ export function InboxView() {
     }
   };
 
+  const markAsRead = async (ids: number[]) => {
+    try {
+      await invoke("mark_as_read", { emailIds: ids });
+      // The backend emits "emails-updated", which triggers fetchEmails via the listener
+    } catch (error) {
+      console.error("Failed to mark as read:", error);
+    }
+  };
+
   const fetchEmailContent = async (id: number) => {
     try {
       setLoadingContent(true);
@@ -169,6 +178,11 @@ export function InboxView() {
   useEffect(() => {
     if (selectedEmailId) {
       fetchEmailContent(selectedEmailId);
+      
+      const email = emails.find(e => e.id === selectedEmailId);
+      if (email && !email.flags.includes("seen")) {
+        markAsRead([selectedEmailId]);
+      }
     } else {
       setEmailContent(null);
       setAttachments([]);
@@ -231,7 +245,12 @@ export function InboxView() {
                 <Separator orientation="vertical" className="h-4 mx-1" />
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-8 w-8"
+                      onClick={() => markAsRead(Array.from(selectedIds))}
+                    >
                       <MailOpen className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
@@ -273,7 +292,7 @@ export function InboxView() {
           >
             {virtualizer.getVirtualItems().map((virtualItem) => {
               const email = emails[virtualItem.index];
-              const isUnread = !email.flags.includes("\\Seen");
+              const isUnread = !email.flags.includes("seen");
               const isSelected = selectedIds.has(email.id);
               return (
                 <button
@@ -294,7 +313,7 @@ export function InboxView() {
                     isUnread && !isSelected && "bg-blue-50/30 font-semibold"
                   )}
                 >
-                  <div className="pt-1">
+                  <div className="pt-1 flex flex-col items-center gap-2">
                      <input 
                         type="checkbox" 
                         checked={isSelected}
@@ -305,6 +324,9 @@ export function InboxView() {
                           !isSelected && "opacity-0 group-hover:opacity-100"
                         )}
                      />
+                     {isUnread && (
+                       <div className="w-2 h-2 rounded-full bg-blue-600 shadow-[0_0_8px_rgba(37,99,235,0.5)]" />
+                     )}
                   </div>
                   <div className="flex-1 min-w-0 flex flex-col gap-1">
                     <div className="flex justify-between items-start">

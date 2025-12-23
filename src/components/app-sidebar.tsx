@@ -14,8 +14,9 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar"
 import { Inbox, Mail, Plus, Settings, CircleAlert, Star } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { invoke } from "@tauri-apps/api/core"
+import { listen } from "@tauri-apps/api/event"
 import { Link, useSearch } from "@tanstack/react-router"
 import { Gmail } from "@/components/ui/svgs/gmail"
 
@@ -43,25 +44,38 @@ export function AppSidebar() {
   const [accountFolders, setAccountFolders] = useState<Record<number, Folder[]>>({})
   const search = useSearch({ from: '/' })
 
-  useEffect(() => {
-    const fetchAccounts = async () => {
-      try {
-        const data = await invoke<Account[]>("get_accounts")
-        setAccounts(data)
-        
-        // Fetch folders for each account
-        for (const account of data) {
-          if (account.id) {
-            const folders = await invoke<Folder[]>("get_folders", { accountId: account.id })
-            setAccountFolders(prev => ({ ...prev, [account.id!]: folders }))
-          }
+  const fetchAccountsAndFolders = async () => {
+    try {
+      const data = await invoke<Account[]>("get_accounts")
+      setAccounts(data)
+      
+      // Fetch folders for each account
+      for (const account of data) {
+        if (account.id) {
+          const folders = await invoke<Folder[]>("get_folders", { accountId: account.id })
+          setAccountFolders(prev => ({ ...prev, [account.id!]: folders }))
         }
-      } catch (error) {
-        console.error(error)
       }
+    } catch (error) {
+      console.error(error)
     }
-    fetchAccounts()
+  }
+
+  useEffect(() => {
+    fetchAccountsAndFolders()
+
+    const unlisten = listen("emails-updated", () => {
+      fetchAccountsAndFolders()
+    })
+
+    return () => {
+      unlisten.then(fn => fn())
+    }
   }, [])
+
+  const totalUnread = useMemo(() => {
+    return Object.values(accountFolders).flat().reduce((acc, folder) => acc + folder.unread_count, 0)
+  }, [accountFolders])
 
   return (
     <Sidebar>
@@ -80,9 +94,14 @@ export function AppSidebar() {
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={!search.accountId && !search.folderId && !search.filter}>
-                   <Link to="/" search={{ accountId: undefined, folderId: undefined, filter: undefined }}>
+                   <Link to="/" search={{ accountId: undefined, folderId: undefined, filter: undefined }} className="w-full flex items-center">
                     <Inbox className="w-4 h-4" />
                     <span>Unified Inbox</span>
+                    {totalUnread > 0 && (
+                        <span className="ml-auto text-[10px] bg-primary text-primary-foreground px-1.5 rounded-full font-bold">
+                            {totalUnread}
+                        </span>
+                    )}
                    </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -96,9 +115,14 @@ export function AppSidebar() {
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={search.filter === "unread"}>
-                  <Link to="/" search={{ accountId: undefined, folderId: undefined, filter: "unread" }}>
+                  <Link to="/" search={{ accountId: undefined, folderId: undefined, filter: "unread" }} className="w-full flex items-center">
                     <CircleAlert className="w-4 h-4" />
                     <span>Unread</span>
+                    {totalUnread > 0 && (
+                        <span className="ml-auto text-[10px] font-bold text-primary">
+                            {totalUnread}
+                        </span>
+                    )}
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
