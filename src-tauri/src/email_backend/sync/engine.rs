@@ -25,6 +25,8 @@ pub struct SyncEngine {
     idle_senders: Arc<Mutex<HashMap<i64, oneshot::Sender<()>>>>,
 }
 
+const SYNC_BATCH_SIZE: u32 = 500;
+
 impl SyncEngine {
     pub fn new(app_handle: AppHandle) -> Self {
         Self { 
@@ -65,6 +67,38 @@ impl SyncEngine {
                 }
             }
         }
+    }
+
+    async fn save_envelopes(
+        app_handle: &AppHandle,
+        account_id: i64,
+        folder_id: i64,
+        envelopes: Envelopes,
+    ) -> Result<(), String> {
+        let pool = app_handle.state::<SqlitePool>();
+        for env in envelopes {
+            let flags: Vec<String> = env.flags.clone().into();
+            sqlx::query(
+                "INSERT INTO emails (account_id, folder_id, remote_id, message_id, subject, sender_name, sender_address, date, flags)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT(account_id, remote_id) DO UPDATE SET 
+                    flags=excluded.flags,
+                    folder_id=excluded.folder_id"
+            )
+            .bind(account_id)
+            .bind(folder_id)
+            .bind(&env.id)
+            .bind(&env.message_id)
+            .bind(&env.subject)
+            .bind(&env.from.name)
+            .bind(&env.from.addr)
+            .bind(env.date.to_rfc3339())
+            .bind(serde_json::to_string(&flags).unwrap_or_default())
+            .execute(&*pool)
+            .await
+            .map_err(|e: sqlx::Error| e.to_string())?;
+        }
+        Ok(())
     }
 
     async fn start_idle_for_account(app_handle: AppHandle, account: Account, idle_senders: Arc<Mutex<HashMap<i64, oneshot::Sender<()>>>>) {
@@ -204,44 +238,51 @@ impl SyncEngine {
             }
         };
 
-        let envelopes = if stored_uid_validity != current_uid_validity || stored_uid_next == 0 {
-            info!("Performing full sync for folder {} of {}", folder_name, account.email());
-            client.fetch_all_envelopes().await.map_err(|e| e.to_string())?
-        } else if (stored_uid_next as u32) < (current_uid_next as u32) {
-            info!("Performing incremental sync for folder {} of {} (UID {}:*)", folder_name, account.email(), stored_uid_next);
-            let start_uid = NonZeroU32::new(stored_uid_next as u32).unwrap_or(NonZeroU32::new(1).unwrap());
-            let uids = (start_uid..).into();
-            client.fetch_envelopes(uids).await.map_err(|e| e.to_string())?
-        } else {
-            info!("Folder {} of {} is up to date", folder_name, account.email());
-            Envelopes::default()
-        };
-
-        if !envelopes.is_empty() {
-            info!("Found {} new/updated envelopes for {}", envelopes.len(), folder_name);
-            for env in envelopes {
-                let flags: Vec<String> = env.flags.clone().into();
-                sqlx::query(
-                    "INSERT INTO emails (account_id, folder_id, remote_id, message_id, subject, sender_name, sender_address, date, flags)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                     ON CONFLICT(account_id, remote_id) DO UPDATE SET flags=excluded.flags"
-                )
-                .bind(account_id)
+        // Handle UID validity change: clear local cache as UIDs are no longer valid
+        if stored_uid_validity != 0 && stored_uid_validity != current_uid_validity {
+            info!("UID validity changed for folder {} of {}, clearing local cache", folder_name, account.email());
+            sqlx::query("DELETE FROM emails WHERE folder_id = ?")
                 .bind(folder_id)
-                .bind(&env.id)
-                .bind(&env.message_id)
-                .bind(&env.subject)
-                .bind(&env.from.name)
-                .bind(&env.from.addr)
-                .bind(env.date.to_rfc3339())
-                .bind(serde_json::to_string(&flags).unwrap_or_default())
                 .execute(&*pool)
                 .await
-                .map_err(|e: sqlx::Error| e.to_string())?;
-            }
+                .map_err(|e| e.to_string())?;
         }
 
-        // Update folder info
+        if stored_uid_validity != current_uid_validity || stored_uid_next == 0 {
+            info!("Performing full sync for folder {} of {}", folder_name, account.email());
+            let mut end = total_count as u32;
+            while end > 0 {
+                let start = if end > SYNC_BATCH_SIZE { end - SYNC_BATCH_SIZE + 1 } else { 1 };
+                info!("Fetching batch {}:{} for folder {} of {}", start, end, folder_name, account.email());
+                
+                let start_nz = NonZeroU32::new(start).unwrap_or(NonZeroU32::new(1).unwrap());
+                let end_nz = NonZeroU32::new(end).unwrap_or(NonZeroU32::new(1).unwrap());
+                let seq = (start_nz..=end_nz).into();
+
+                let envelopes = client.fetch_envelopes_by_sequence(seq).await.map_err(|e| e.to_string())?;
+                if envelopes.is_empty() { break; }
+                
+                Self::save_envelopes(app_handle, account_id, folder_id, envelopes).await?;
+                let _ = app_handle.emit("emails-updated", account_id);
+                
+                end = if start > 1 { start - 1 } else { 0 };
+            }
+        } else if (stored_uid_next as u32) < (current_uid_next as u32) {
+            info!("Performing incremental sync for folder {} of {} (UID {}:*)", folder_name, account.email(), stored_uid_next);
+            
+            let start_uid = NonZeroU32::new(stored_uid_next as u32).unwrap_or(NonZeroU32::new(1).unwrap());
+            let uids = (start_uid..).into();
+            let envelopes = client.fetch_envelopes(uids).await.map_err(|e| e.to_string())?;
+            
+            if !envelopes.is_empty() {
+                Self::save_envelopes(app_handle, account_id, folder_id, envelopes).await?;
+                let _ = app_handle.emit("emails-updated", account_id);
+            }
+        } else {
+            info!("Folder {} of {} is up to date", folder_name, account.email());
+        }
+
+        // Update folder info with latest state from server
         sqlx::query(
             "UPDATE folders SET uid_validity = ?, uid_next = ?, total_count = ? WHERE id = ?"
         )
