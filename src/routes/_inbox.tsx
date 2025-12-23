@@ -161,7 +161,7 @@ export function InboxLayout() {
                     left: 0,
                     width: '100%',
                   }}
-                  preload={"render"}
+                  preload={"intent"}
                   className={cn(
                     "flex items-start gap-4 p-4 text-left border-b transition-colors hover:bg-muted/50 group antialiased",
                     selectedEmailId === email.id && "bg-muted",

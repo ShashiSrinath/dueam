@@ -1,22 +1,24 @@
 import { createFileRoute, defer, Await } from "@tanstack/react-router";
-import { useMemo, Suspense } from "react";
+import { Suspense } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { format } from "date-fns";
 import { Mail, User, Clock, Paperclip } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import DOMPurify from "dompurify";
-import { useEmailStore, Attachment, EmailContent } from "@/lib/store";
+import { useEmailStore, Attachment, EmailContent, Email } from "@/lib/store";
 
 export const Route = createFileRoute("/_inbox/email/$emailId")({
-  loader: ({ params: { emailId } }) => {
+  loader: async ({ params: { emailId } }) => {
     const id = parseInt(emailId);
 
+    const email = await invoke<Email>("get_email_by_id", { emailId: id });
     const contentPromise = invoke<EmailContent>("get_email_content", { emailId: id });
     const attachmentsPromise = invoke<Attachment[]>("get_attachments", { emailId: id });
 
     return {
-      data: defer(Promise.all([contentPromise, attachmentsPromise])),
+      email,
+      deferred: defer(Promise.all([contentPromise, attachmentsPromise])),
     };
   },
   onEnter: ({ params: { emailId } }) => {
@@ -27,12 +29,7 @@ export const Route = createFileRoute("/_inbox/email/$emailId")({
 });
 
 function EmailDetail() {
-  const { emailId } = Route.useParams();
-  const id = parseInt(emailId);
-  const { data } = Route.useLoaderData();
-
-  const emails = useEmailStore(state => state.emails);
-  const selectedEmail = useMemo(() => emails.find((e) => e.id === id), [emails, id]);
+  const { email, deferred } = Route.useLoaderData();
 
   const downloadAttachment = async (att: Attachment) => {
     try {
@@ -59,18 +56,10 @@ function EmailDetail() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
   };
 
-  if (!selectedEmail) {
-      return (
-          <div className="flex-1 flex items-center justify-center text-muted-foreground">
-            <p>Email not found.</p>
-          </div>
-      )
-  }
-
   return (
     <div className="flex flex-col h-full">
       <div className="p-6 border-b space-y-4">
-        <h2 className="text-2xl font-bold">{selectedEmail.subject || "(No Subject)"}</h2>
+        <h2 className="text-2xl font-bold">{email.subject || "(No Subject)"}</h2>
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
             <User className="w-6 h-6" />
@@ -78,19 +67,20 @@ function EmailDetail() {
           <div className="flex-1 min-w-0">
             <div className="flex justify-between items-center">
               <span className="font-semibold block truncate">
-                {selectedEmail.sender_name}
+                {email.sender_name}
               </span>
               <span className="text-sm text-muted-foreground flex items-center gap-1">
                 <Clock className="w-3 h-3" />
-                {format(new Date(selectedEmail.date), "PPP p")}
+                {format(new Date(email.date), "PPP p")}
               </span>
             </div>
             <span className="text-sm text-muted-foreground block truncate">
-              &lt;{selectedEmail.sender_address}&gt;
+              &lt;{email.sender_address}&gt;
             </span>
           </div>
         </div>
       </div>
+
       <ScrollArea className="flex-1 p-8">
         <div className="max-w-4xl mx-auto space-y-8">
           <Suspense fallback={
@@ -99,17 +89,9 @@ function EmailDetail() {
               <Skeleton className="h-4 w-full" />
               <Skeleton className="h-4 w-5/6" />
               <Skeleton className="h-4 w-2/3" />
-              <div className="pt-8 space-y-4">
-                <Skeleton className="h-4 w-1/4" />
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <Skeleton className="h-16 rounded-lg" />
-                  <Skeleton className="h-16 rounded-lg" />
-                  <Skeleton className="h-16 rounded-lg" />
-                </div>
-              </div>
             </div>
           }>
-            <Await promise={data}>
+            <Await promise={deferred}>
               {([content, attachments]) => {
                 const sanitizedHtml = content.body_html ? DOMPurify.sanitize(content.body_html, {
                   USE_PROFILES: { html: true },

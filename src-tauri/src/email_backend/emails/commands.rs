@@ -161,6 +161,19 @@ pub async fn get_emails<R: tauri::Runtime>(
     Ok(emails)
 }
 
+#[tauri::command]
+pub async fn get_email_by_id<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, email_id: i64) -> Result<Email, String> {
+    let pool = app_handle.state::<SqlitePool>();
+    let email = sqlx::query_as::<_, Email>(
+        "SELECT id, account_id, folder_id, remote_id, message_id, subject, sender_name, sender_address, date, flags, snippet, has_attachments FROM emails WHERE id = ?"
+    )
+    .bind(email_id)
+    .fetch_one(&*pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(email)
+}
+
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Attachment {
     pub id: i64,
