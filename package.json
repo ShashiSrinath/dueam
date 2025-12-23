@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "description": "A modern, high-performance desktop email client.",
+  "author": "Shashi Srinath <atshashisrinath@gmail.com>",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "dev:full": "bun tauri dev",
