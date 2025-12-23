@@ -268,6 +268,7 @@ export function InboxView() {
               height: `${virtualizer.getTotalSize()}px`,
               width: '100%',
               position: 'relative',
+              transform: 'translateZ(0)',
             }}
           >
             {virtualizer.getVirtualItems().map((virtualItem) => {
@@ -282,13 +283,12 @@ export function InboxView() {
                   onClick={() => setSelectedEmailId(email.id)}
                   style={{
                     position: 'absolute',
-                    top: 0,
+                    top: Math.round(virtualItem.start),
                     left: 0,
                     width: '100%',
-                    transform: `translateY(${virtualItem.start}px)`,
                   }}
                   className={cn(
-                    "flex items-start gap-4 p-4 text-left border-b transition-colors hover:bg-muted/50 group",
+                    "flex items-start gap-4 p-4 text-left border-b transition-colors hover:bg-muted/50 group antialiased",
                     selectedEmailId === email.id && "bg-muted",
                     isSelected && "bg-primary/5",
                     isUnread && !isSelected && "bg-blue-50/30 font-semibold"
