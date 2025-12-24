@@ -120,20 +120,57 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   },
 
   fetchEmails: async (params, isRefresh = false) => {
+    const { emails: currentEmails, loadingEmails } = get();
+    if (loadingEmails && !isRefresh) return;
+
     set({ loadingEmails: true, lastSearchParams: params });
+    
+    // If refreshing, we want to fetch at least as many as we already have 
+    // to avoid the list shrinking and causing scroll jumps
+    const limit = isRefresh ? Math.max(currentEmails.length, PAGE_SIZE) : PAGE_SIZE;
+    
     if (!isRefresh) {
       set({ emails: [], hasMore: true, selectedIds: new Set() });
     }
     
     try {
-      const emails = await invoke<Email[]>("get_emails", { 
+      const fetchedEmails = await invoke<Email[]>("get_emails", { 
         account_id: params.accountId || null, 
         folder_id: params.folderId || null,
         filter: params.filter || null,
-        limit: PAGE_SIZE,
+        limit,
         offset: 0
       });
-      set({ emails, hasMore: emails.length === PAGE_SIZE });
+      
+      if (isRefresh) {
+        // Smart Merge: Update existing items if they changed, add new ones at the top,
+        // but preserve references for unchanged items to help React/Virtualizer.
+        set(state => {
+          const emailMap = new Map(state.emails.map(e => [e.id, e]));
+          let changed = false;
+          
+          const merged = fetchedEmails.map(newEmail => {
+            const existing = emailMap.get(newEmail.id);
+            if (existing) {
+              // Deep compare important fields (simplified here)
+              if (existing.flags !== newEmail.flags || existing.subject !== newEmail.subject) {
+                changed = true;
+                return newEmail;
+              }
+              return existing; // Keep reference!
+            }
+            changed = true;
+            return newEmail;
+          });
+
+          // Also check if some were removed or if length changed
+          if (merged.length !== state.emails.length) changed = true;
+
+          return changed ? { emails: merged, hasMore: fetchedEmails.length === limit } : {};
+        });
+      } else {
+        set({ emails: fetchedEmails, hasMore: fetchedEmails.length === limit });
+      }
     } catch (error) {
       console.error("Failed to fetch emails:", error);
     } finally {
