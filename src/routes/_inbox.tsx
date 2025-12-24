@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet, useParams } from "@tanstack/react-router";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import { useEmailStore } from "@/lib/store";
 import { EmailListToolbar } from "./_inbox/-components/email-list-toolbar";
@@ -10,6 +10,7 @@ const inboxSearchSchema = z.object({
   accountId: z.number().optional(),
   view: z.string().optional(),
   filter: z.string().optional(),
+  search: z.string().optional(),
 });
 
 export const Route = createFileRoute("/_inbox")({
@@ -18,7 +19,11 @@ export const Route = createFileRoute("/_inbox")({
 });
 
 export function InboxLayout() {
-  const { accountId, view, filter } = Route.useSearch();
+  const searchParams = Route.useSearch();
+  const { accountId, view, filter, search } = searchParams;
+  const navigate = Route.useNavigate();
+  const [localSearch, setLocalSearch] = useState(search || "");
+
   // @ts-ignore - this might not be available yet but will be in child routes
   const { emailId } = useParams({ strict: false });
   const selectedEmailId = emailId ? parseInt(emailId) : null;
@@ -37,10 +42,28 @@ export function InboxLayout() {
   const isSomeSelected = selectedIds.size > 0 && selectedIds.size < emails.length;
 
   useEffect(() => {
-    fetchEmails({ accountId, view, filter });
-  }, [accountId, view, filter, fetchEmails]);
+    fetchEmails({ accountId, view, filter, search });
+  }, [accountId, view, filter, search, fetchEmails]);
+
+  // Sync local search with URL search param
+  useEffect(() => {
+    setLocalSearch(search || "");
+  }, [search]);
+
+  // Debounce search update
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localSearch !== (search || "")) {
+        (navigate as any)({
+          search: { ...searchParams, search: localSearch || undefined },
+        });
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [localSearch, navigate, search, searchParams]);
 
   const title = useMemo(() => {
+    if (search) return "Search Results";
     if (filter === "unread") return "Unread";
     if (filter === "flagged") return "Flagged";
     if (view === "others") return "Others";
@@ -50,7 +73,7 @@ export function InboxLayout() {
     if (view === "trash") return "Trash";
     if (view === "archive") return "Archive";
     return "Inbox";
-  }, [view, filter]);
+  }, [view, filter, search]);
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -62,6 +85,8 @@ export function InboxLayout() {
           onToggleSelectAll={toggleSelectAll}
           title={title}
           emailCount={emails.length}
+          searchValue={localSearch}
+          onSearchChange={setLocalSearch}
         />
 
         {selectedIds.size > 0 && (

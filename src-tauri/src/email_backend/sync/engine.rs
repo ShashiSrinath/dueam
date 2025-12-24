@@ -13,6 +13,7 @@ use email::backend::context::BackendContextBuilder;
 use email::backend::BackendBuilder;
 use email::folder::list::ListFolders;
 use email::envelope::Envelopes;
+use email::message::get::GetMessages;
 use imap_client::tasks::tasks::select::SelectDataUnvalidated;
 use sqlx::SqlitePool;
 
@@ -47,6 +48,17 @@ impl<R: tauri::Runtime> SyncEngine<R> {
                 sleep(Duration::from_secs(300)).await;
                 if let Err(e) = Self::sync_all_accounts(&app_handle_periodic).await {
                     error!("Error during periodic sync: {}", e);
+                }
+            }
+        });
+
+        // Start background indexing
+        let app_handle_indexing = app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                sleep(Duration::from_secs(60)).await;
+                if let Err(e) = Self::index_pending_emails(&app_handle_indexing).await {
+                    error!("Error during background indexing: {}", e);
                 }
             }
         });
@@ -364,6 +376,91 @@ impl<R: tauri::Runtime> SyncEngine<R> {
             let mut client = context.client().await;
             let folder_data = client.examine_mailbox(&folder.name).await.map_err(|e| e.to_string())?;
             Self::sync_folder(app_handle, &mut *client, &account, &folder.name, role, &folder_data).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn index_pending_emails(app_handle: &tauri::AppHandle<R>) -> Result<(), String> {
+        let pool = app_handle.state::<SqlitePool>();
+        
+        // Find a batch of emails missing body content, prioritized by date
+        let pending_emails: Vec<(i64, i64, String, String)> = sqlx::query_as(
+            "SELECT e.id, e.account_id, e.remote_id, f.path 
+             FROM emails e 
+             JOIN folders f ON e.folder_id = f.id 
+             WHERE e.body_text IS NULL AND f.role != 'trash' AND f.role != 'spam'
+             ORDER BY e.date DESC LIMIT 20"
+        )
+        .fetch_all(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        if pending_emails.is_empty() {
+            return Ok(());
+        }
+
+        info!("Background indexing {} emails...", pending_emails.len());
+
+        let manager = AccountManager::new(app_handle).await?;
+        
+        // Group by account to reuse connections
+        let mut by_account: HashMap<i64, Vec<(i64, String, String)>> = HashMap::new();
+        for (id, account_id, remote_id, folder_path) in pending_emails {
+            by_account.entry(account_id).or_default().push((id, remote_id, folder_path));
+        }
+
+        for (account_id, emails) in by_account {
+            let account = match manager.get_account_by_id(account_id).await {
+                Ok(a) => a,
+                Err(_) => continue,
+            };
+
+            let (account_config, imap_config, _) = account.get_configs()?;
+            let backend_builder = BackendBuilder::new(
+                account_config.clone(),
+                ImapContextBuilder::new(account_config, imap_config),
+            );
+
+            let backend = match backend_builder.build().await {
+                Ok(b) => b,
+                Err(e) => {
+                    error!("Failed to build backend for account {}: {}", account_id, e);
+                    continue;
+                }
+            };
+
+            for (email_id, remote_id, folder_path) in emails {
+                let id = email::envelope::Id::single(remote_id);
+                match backend.get_messages(&folder_path, &id).await {
+                    Ok(messages) => {
+                        if let Some(message) = messages.first() {
+                            if let Ok(parsed) = message.parsed() {
+                                let body_text: Option<String> = parsed.body_text(0).map(|b| b.to_string());
+                                let body_html: Option<String> = parsed.body_html(0).map(|b| b.to_string());
+                                let snippet = body_text.as_ref().map(|t: &String| {
+                                    let s = t.chars().take(200).collect::<String>();
+                                    s.replace('\n', " ").replace('\r', "")
+                                });
+
+                                sqlx::query("UPDATE emails SET body_text = ?, body_html = ?, snippet = ? WHERE id = ?")
+                                    .bind(body_text)
+                                    .bind(body_html)
+                                    .bind(snippet)
+                                    .bind(email_id)
+                                    .execute(&*pool)
+                                    .await
+                                    .map_err(|e| e.to_string())?;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to fetch message {} for indexing: {}", email_id, e);
+                    }
+                }
+                // Small sleep to be nice to the server
+                sleep(Duration::from_millis(100)).await;
+            }
         }
 
         Ok(())

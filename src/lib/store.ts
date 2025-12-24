@@ -73,8 +73,8 @@ interface EmailState {
   emails: Email[];
   loadingEmails: boolean;
   hasMore: boolean;
-  lastSearchParams: { accountId?: number; view?: string; filter?: string } | null;
-  fetchEmails: (params: { accountId?: number; view?: string; filter?: string }, isRefresh?: boolean) => Promise<void>;
+  lastSearchParams: { accountId?: number; view?: string; filter?: string; search?: string } | null;
+  fetchEmails: (params: { accountId?: number; view?: string; filter?: string; search?: string }, isRefresh?: boolean) => Promise<void>;
   fetchMoreEmails: () => Promise<void>;
   refreshEmails: () => Promise<void>;
 
@@ -195,7 +195,15 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     try {
       let fetchedEmails: Email[] = [];
 
-      if (params.view === "drafts") {
+      if (params.search) {
+        fetchedEmails = await invoke<Email[]>("search_emails", {
+          query_text: params.search,
+          account_id: params.accountId || null,
+          view: params.view || null,
+          limit,
+          offset: 0
+        });
+      } else if (params.view === "drafts") {
         // Fetch from drafts table and map to Email type
         const accounts = get().accounts;
         const drafts: any[] = [];
@@ -270,13 +278,21 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
     set({ loadingEmails: true });
     try {
-      const newEmails = await invoke<Email[]>("get_emails", {
-        account_id: lastSearchParams.accountId || null,
-        view: lastSearchParams.view || "primary",
-        filter: lastSearchParams.filter || null,
-        limit: PAGE_SIZE,
-        offset: emails.length
-      });
+      const newEmails = lastSearchParams.search 
+        ? await invoke<Email[]>("search_emails", {
+            query_text: lastSearchParams.search,
+            account_id: lastSearchParams.accountId || null,
+            view: lastSearchParams.view || null,
+            limit: PAGE_SIZE,
+            offset: emails.length
+          })
+        : await invoke<Email[]>("get_emails", {
+            account_id: lastSearchParams.accountId || null,
+            view: lastSearchParams.view || "primary",
+            filter: lastSearchParams.filter || null,
+            limit: PAGE_SIZE,
+            offset: emails.length
+          });
 
       set(state => {
         const existingIds = new Set(state.emails.map(e => e.id));

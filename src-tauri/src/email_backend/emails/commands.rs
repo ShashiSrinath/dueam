@@ -454,6 +454,70 @@ pub async fn send_email<R: tauri::Runtime>(
 }
 
 #[tauri::command]
+pub async fn search_emails<R: tauri::Runtime>(
+    app_handle: tauri::AppHandle<R>,
+    query_text: String,
+    account_id: Option<i64>,
+    view: Option<String>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<Vec<Email>, String> {
+    let pool = app_handle.state::<SqlitePool>();
+    
+    let mut query_parts = Vec::new();
+    let mut bindings = Vec::new();
+
+    // FTS search
+    query_parts.push("emails_fts MATCH ?");
+    bindings.push(query_text);
+
+    if let Some(aid) = account_id {
+        query_parts.push("e.account_id = ?");
+        bindings.push(aid.to_string());
+    }
+
+    if let Some(v) = view {
+        match v.as_str() {
+            "primary" => query_parts.push("f.role = 'inbox'"),
+            "spam" => query_parts.push("f.role = 'spam'"),
+            "sent" => query_parts.push("f.role = 'sent'"),
+            "drafts" => query_parts.push("f.role = 'drafts'"),
+            "trash" => query_parts.push("f.role = 'trash'"),
+            "archive" => query_parts.push("f.role = 'archive'"),
+            "others" => query_parts.push("(f.role IS NULL OR f.role = '' OR f.role NOT IN ('inbox', 'spam', 'sent', 'drafts', 'trash', 'archive'))"),
+            _ => {}
+        }
+    }
+
+    let where_clause = format!("WHERE {}", query_parts.join(" AND "));
+    let l = limit.unwrap_or(100);
+    let o = offset.unwrap_or(0);
+
+    let query_str = format!(
+        "SELECT e.id, e.account_id, e.folder_id, e.remote_id, e.message_id, e.subject, e.sender_name, e.sender_address, e.date, e.flags, e.snippet, e.has_attachments 
+         FROM emails e 
+         JOIN folders f ON e.folder_id = f.id 
+         JOIN emails_fts fts ON e.id = fts.rowid
+         {} GROUP BY e.account_id, COALESCE(e.message_id, e.folder_id || '-' || e.remote_id)
+         ORDER BY e.date DESC LIMIT {} OFFSET {}", 
+        where_clause, l, o
+    );
+    
+    let mut query = sqlx::query_as::<_, Email>(&query_str);
+    for binding in bindings {
+        if binding.parse::<i64>().is_ok() && !binding.contains(|c: char| !c.is_numeric()) {
+             query = query.bind(binding.parse::<i64>().unwrap());
+        } else {
+             query = query.bind(binding);
+        }
+    }
+
+    let emails = query.fetch_all(&*pool).await.map_err(|e| e.to_string())?;
+
+    Ok(emails)
+}
+
+#[tauri::command]
 pub async fn get_folders<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, account_id: i64) -> Result<Vec<Folder>, String> {
     let pool = app_handle.state::<SqlitePool>();
     let folders = sqlx::query_as::<_, Folder>("SELECT * FROM folders WHERE account_id = ?")
