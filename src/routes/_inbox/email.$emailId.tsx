@@ -1,6 +1,7 @@
 import { createFileRoute, defer, Await } from "@tanstack/react-router";
 import { Suspense } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { format } from "date-fns";
 import { Mail, User, Clock, Paperclip } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -30,6 +31,22 @@ export const Route = createFileRoute("/_inbox/email/$emailId")({
 
 function EmailDetail() {
   const { email, deferred } = Route.useLoaderData();
+
+  const handleContentClick = async (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const anchor = target.closest("a");
+    if (anchor) {
+      const href = anchor.getAttribute("href");
+      if (href && (href.startsWith("http") || href.startsWith("mailto:"))) {
+        e.preventDefault();
+        try {
+          await openUrl(href);
+        } catch (error) {
+          console.error("Failed to open link:", error);
+        }
+      }
+    }
+  };
 
   const downloadAttachment = async (att: Attachment) => {
     try {
@@ -96,11 +113,16 @@ function EmailDetail() {
                 const sanitizedHtml = content.body_html ? DOMPurify.sanitize(content.body_html, {
                   USE_PROFILES: { html: true },
                   ADD_TAGS: ["style"],
+                  FORBID_TAGS: ["script", "iframe", "object", "embed"],
+                  FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover"],
                 }) : null;
 
                 return (
                   <>
-                    <div className="prose prose-sm max-w-none dark:prose-invert">
+                    <div 
+                      className="prose prose-sm max-w-none dark:prose-invert"
+                      onClick={handleContentClick}
+                    >
                       {sanitizedHtml ? (
                         <div dangerouslySetInnerHTML={{ __html: sanitizedHtml }} />
                       ) : (
