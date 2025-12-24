@@ -452,7 +452,7 @@ mod tests {
         .bind("remote-1")
         .bind("Test Subject")
         .bind("sender@example.com")
-        .bind(Utc::now().to_rfc3339())
+        .bind(Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
         .bind("[\"seen\"]")
         .bind("Hello content")
         .fetch_one(pool)

@@ -237,9 +237,13 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         offset: emails.length
       });
 
-      set({ 
-        emails: [...emails, ...newEmails], 
-        hasMore: newEmails.length === PAGE_SIZE 
+      set(state => {
+        const existingIds = new Set(state.emails.map(e => e.id));
+        const uniqueNewEmails = newEmails.filter(e => !existingIds.has(e.id));
+        return { 
+          emails: [...state.emails, ...uniqueNewEmails], 
+          hasMore: newEmails.length === PAGE_SIZE 
+        };
       });
     } catch (error) {
       console.error("Failed to fetch more emails:", error);

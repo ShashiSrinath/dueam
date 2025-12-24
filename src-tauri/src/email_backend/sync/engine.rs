@@ -92,7 +92,7 @@ impl SyncEngine {
             .bind(&env.subject)
             .bind(&env.from.name)
             .bind(&env.from.addr)
-            .bind(env.date.to_rfc3339())
+            .bind(env.date.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
             .bind(serde_json::to_string(&flags).unwrap_or_default())
             .execute(&*pool)
             .await
