@@ -40,6 +40,10 @@ chrono = { version = "0.4.42", features = ["serde"] }
 tauri-plugin-sql = { version = "2.3.1", features = ["sqlite"] }
 sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio", "macros", "chrono"] }
 secret = { version = "1.0.0", package = "secret-lib" }
+md5 = "0.8.0"
+sha2 = "0.10.9"
+url = "2.5.7"
+base64 = "0.22.1"
 
 [dev-dependencies]
 tempfile = "3"

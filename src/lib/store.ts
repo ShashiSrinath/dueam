@@ -36,6 +36,32 @@ export type Email = {
   has_attachments: boolean;
 };
 
+export type Sender = {
+  address: string;
+  name: string | null;
+  avatar_url: string | null;
+  job_title: string | null;
+  company: string | null;
+  bio: string | null;
+  location: string | null;
+  github_handle: string | null;
+  linkedin_handle: string | null;
+  twitter_handle: string | null;
+  website_url: string | null;
+  is_verified: boolean;
+  last_enriched_at: string | null;
+};
+
+export type Domain = {
+  domain: string;
+  name: string | null;
+  logo_url: string | null;
+  description: string | null;
+  website_url: string | null;
+  location: string | null;
+  last_enriched_at: string | null;
+};
+
 export type EmailContent = {
   body_text: string | null;
   body_html: string | null;

@@ -1442,6 +1442,7 @@ dependencies = [
 name = "dream-email"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chacha20poly1305",
  "chrono",
  "dotenvy",
@@ -1450,12 +1451,14 @@ dependencies = [
  "imap-client",
  "keyring",
  "log",
+ "md5",
  "oauth-lib",
  "rand 0.8.5",
  "reqwest",
  "secret-lib",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "tauri",
  "tauri-build",
@@ -1465,6 +1468,7 @@ dependencies = [
  "tauri-plugin-sql",
  "tempfile",
  "tokio",
+ "url",
 ]
 
 [[package]]
@@ -3491,6 +3495,12 @@ dependencies = [
  "cfg-if",
  "digest",
 ]
+
+[[package]]
+name = "md5"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae960838283323069879657ca3de837e9f7bbb4c7bf6ea7f1b290d5e9476d2e0"
 
 [[package]]
 name = "memchr"

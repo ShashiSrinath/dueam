@@ -65,6 +65,18 @@ impl<R: tauri::Runtime> SyncEngine<R> {
             }
         });
 
+        // Start background identity enrichment
+        let app_handle_enrichment = app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                // Run enrichment every 2 minutes
+                sleep(Duration::from_secs(120)).await;
+                if let Err(e) = crate::email_backend::enrichment::commands::proactive_enrichment(&app_handle_enrichment).await {
+                    error!("Error during background enrichment: {}", e);
+                }
+            }
+        });
+
         // Start IDLE for all accounts
         if let Ok(manager) = AccountManager::new(&app_handle).await {
             if let Ok(registry) = manager.load().await {

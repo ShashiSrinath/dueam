@@ -1,5 +1,6 @@
 use crate::email_backend::accounts::commands::{login_with_google, get_accounts, remove_account};
 use crate::email_backend::emails::commands::{get_emails, get_folders, refresh_folder, get_unified_counts, get_email_content, get_attachments, get_attachment_data, mark_as_read, move_to_trash, get_email_by_id, send_email, save_draft, get_drafts, delete_draft, get_draft_by_id, search_emails};
+use crate::email_backend::enrichment::commands::{get_sender_info, get_domain_info, get_emails_by_sender};
 use crate::db::settings::{get_settings, update_setting};
 use crate::email_backend::sync::SyncEngine;
 use crate::db::setup::setup_database;
@@ -101,7 +102,10 @@ pub fn run() {
             get_draft_by_id,
             search_emails,
             get_settings,
-            update_setting
+            update_setting,
+            get_sender_info,
+            get_domain_info,
+            get_emails_by_sender
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

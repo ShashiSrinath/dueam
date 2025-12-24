@@ -4,7 +4,8 @@ import { Paperclip, Check } from "lucide-react";
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Email, useEmailStore } from "@/lib/store";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useSenderInfo } from "@/hooks/use-sender-info";
 
 interface EmailListItemProps {
   email: Email;
@@ -34,6 +35,7 @@ export function EmailListItem({
   const setComposer = useEmailStore(state => state.setComposer);
   const accounts = useEmailStore(state => state.accounts);
   const account = useMemo(() => accounts.find(a => a.data.id === email.account_id), [accounts, email.account_id]);
+  const { sender } = useSenderInfo(email.sender_address);
 
   const handleClick = (e: React.MouseEvent) => {
     if (isDraft) {
@@ -115,9 +117,19 @@ export function EmailListItem({
           className="relative cursor-pointer"
         >
           <Avatar className={cn(
-            "size-9 transition-all duration-400 ease-in-out",
+            "size-9 transition-all duration-400 ease-in-out bg-background",
             isSelected ? "scale-0 opacity-0" : "scale-100 opacity-100"
           )}>
+            {sender?.avatar_url && (
+              <AvatarImage src={sender.avatar_url} alt={sender.name || email.sender_name || ""} />
+            )}
+            {sender?.company && (
+              <AvatarImage 
+                src={`https://logo.clearbit.com/${sender.company}`} 
+                alt={sender.company} 
+                className="p-1" // Give logos a little padding
+              />
+            )}
             <AvatarFallback className={cn("text-xs font-semibold", bgColor)}>
               {initials}
             </AvatarFallback>

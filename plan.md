@@ -70,6 +70,27 @@ Act as a desktop email client with **multiple inboxes in the same view** (Unifie
   - [x] Create a robust mechanism for saving user preferences.
   - [x] Store all settings and preferences in the existing SQLite database to ensure centralized, reliable persistence.
 
+## Phase 7: Sender Intelligence & Identity Enrichment
+
+- [ ] **Advanced Enrichment Engine (Rust)**:
+  - [ ] **Social Discovery**: Implement lookups for social handles (GitHub, LinkedIn, Twitter/X) via common identity patterns and public APIs.
+  - [ ] **Professional Metadata**: Extract job titles, company names, and bios from email signatures and public professional profiles.
+  - [ ] **Domain Intelligence**:
+    - [ ] **Company Profile**: Fetch company descriptions and headquarters locations for corporate domains.
+    - [ ] **Aggregation**: Automatically group senders by domain to provide "Company Views" (e.g., see all threads from `stripe.com`).
+  - [ ] **Multi-Tier Avatar System**: (Retained from previous plan) BIMI, Favicons, Gravatar, and Libravatar.
+- [ ] **Contextual Insights UI**:
+  - [ ] **Sender Sidebar**: Create a collapsible side panel in the `EmailDetailView` showing:
+    - [ ] Full profile (Avatar, Name, Title, Bio, Location).
+    - [ ] Social links (clickable icons).
+    - [ ] "Recent Threads" from this specific sender across all accounts.
+    - [ ] Shared attachments history.
+  - [ ] **Identity Badges**: Visual indicators for "New Sender," "Known Contact," or "Verified Brand."
+- [ ] **Privacy-First Architecture**:
+  - [ ] **Opt-in Discovery**: Allow users to toggle external identity lookups to maintain privacy.
+  - [ ] **Local-First Cache**: Strictly cache all enriched data in SQLite; ensure no data is sent to 3rd party servers except for the direct resolution request.
+  - [ ] **Request Proxying**: All external metadata fetches (favicons, BIMI, etc.) routed through a local Rust proxy to strip tracking headers.
+
 ---
 
 ## Tech Stack
