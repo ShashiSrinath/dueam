@@ -115,7 +115,7 @@ export function EmailListItem({
           className="relative cursor-pointer"
         >
           <Avatar className={cn(
-            "size-9 transition-all duration-200",
+            "size-9 transition-all duration-400 ease-in-out",
             isSelected ? "scale-0 opacity-0" : "scale-100 opacity-100"
           )}>
             <AvatarFallback className={cn("text-xs font-semibold", bgColor)}>
@@ -124,13 +124,13 @@ export function EmailListItem({
           </Avatar>
           
           <div className={cn(
-            "absolute inset-0 flex items-center justify-center rounded-full transition-all duration-200 border-2",
+            "absolute inset-0 flex items-center justify-center rounded-full transition-all duration-400 ease-in-out border-2",
             isSelected 
               ? "bg-primary border-primary scale-100 opacity-100" 
               : "bg-background border-muted-foreground/30 scale-50 opacity-0 group-hover:scale-100 group-hover:opacity-100"
           )}>
             <Check className={cn(
-              "size-5 text-primary-foreground transition-transform duration-200",
+              "size-5 text-primary-foreground transition-transform duration-400 ease-in-out",
               isSelected ? "scale-100" : "scale-0 group-hover:scale-100"
             )} />
           </div>
