@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { format } from "date-fns";
-import { Paperclip, Check } from "lucide-react";
+import { Paperclip, Check, Building2 } from "lucide-react";
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Email, useEmailStore } from "@/lib/store";
@@ -61,6 +61,15 @@ export function EmailListItem({
   };
 
   const initials = useMemo(() => {
+    // If it's a corporate sender without a clear display name, use the domain name for initials
+    if (sender?.company && (!email.sender_name || email.sender_name === email.sender_address)) {
+      const part = sender.company.split('.')[0];
+      if (part === 'www' && sender.company.split('.').length > 1) {
+        return sender.company.split('.')[1].substring(0, 2).toUpperCase();
+      }
+      return part.substring(0, 2).toUpperCase();
+    }
+
     const name = email.sender_name || email.sender_address;
     return name
       .split(" ")
@@ -68,7 +77,7 @@ export function EmailListItem({
       .join("")
       .substring(0, 2)
       .toUpperCase();
-  }, [email.sender_name, email.sender_address]);
+  }, [email.sender_name, email.sender_address, sender?.company]);
 
   // Generate a consistent background color based on sender address
   const bgColor = useMemo(() => {
@@ -120,18 +129,34 @@ export function EmailListItem({
             "size-9 transition-all duration-400 ease-in-out bg-background",
             isSelected ? "scale-0 opacity-0" : "scale-100 opacity-100"
           )}>
-            {sender?.avatar_url && (
+            {sender?.avatar_url && !sender.avatar_url.includes('google.com') && (
               <AvatarImage src={sender.avatar_url} alt={sender.name || email.sender_name || ""} />
             )}
             {sender?.company && (
-              <AvatarImage 
-                src={`https://logo.clearbit.com/${sender.company}`} 
-                alt={sender.company} 
-                className="p-1" // Give logos a little padding
-              />
+              <>
+                {/* DuckDuckGo often has better transparent logos */}
+                <AvatarImage 
+                  src={`https://icons.duckduckgo.com/ip3/${sender.company}.ico`} 
+                  alt={sender.company} 
+                  className="p-1"
+                />
+                <AvatarImage 
+                  src={`https://www.google.com/s2/favicons?domain=${sender.company}&sz=128`} 
+                  alt={sender.company} 
+                  className="p-1"
+                />
+              </>
             )}
-            <AvatarFallback className={cn("text-xs font-semibold", bgColor)}>
-              {initials}
+            <AvatarFallback className={cn(
+              "text-[10px] font-bold", 
+              sender?.company ? "bg-slate-100 text-slate-600 border" : bgColor
+            )}>
+              {sender?.company ? (
+                <div className="flex flex-col items-center justify-center leading-none scale-90">
+                  <Building2 className="size-2.5 mb-0.5 opacity-60" />
+                  {initials}
+                </div>
+              ) : initials}
             </AvatarFallback>
           </Avatar>
           

@@ -49,10 +49,10 @@ export function SenderSidebar({ address, name }: { address: string; name?: strin
     .toUpperCase();
 
   return (
-    <div className="w-80 border-l flex flex-col h-full bg-muted/10 hidden xl:flex shrink-0 min-w-0">
-      <ScrollArea className="flex-1 min-h-0">
-        <div className="p-6 space-y-8 min-w-0">
-          <div className="flex flex-col items-center text-center space-y-4 min-w-0">
+    <div className="w-[320px] max-w-[320px] border-l flex flex-col h-full bg-muted/10 hidden xl:flex shrink-0 min-w-0 overflow-x-hidden">
+      <ScrollArea className="flex-1 min-h-0 overflow-x-hidden">
+        <div className="p-6 space-y-8 min-w-0 overflow-x-hidden">
+          <div className="flex flex-col items-center text-center space-y-4 min-w-0 w-full overflow-hidden">
             <div className="relative">
               <Avatar className="w-24 h-24 border-2 border-background shadow-sm shrink-0">
                 <AvatarImage src={sender?.avatar_url || ""} alt={name || ""} />
@@ -79,7 +79,7 @@ export function SenderSidebar({ address, name }: { address: string; name?: strin
 
           {sender?.company && (
             <div className="space-y-3 min-w-0">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Company</h4>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-semibold">Company</h4>
               <div className="flex items-center gap-3 p-3 bg-background rounded-lg border shadow-sm min-w-0">
                 <Avatar className="w-10 h-10 rounded-md shrink-0">
                   <AvatarImage src={domainInfo?.logo_url || ""} />
@@ -88,7 +88,7 @@ export function SenderSidebar({ address, name }: { address: string; name?: strin
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-bold truncate">{sender.company}</div>
+                  <div className="text-sm font-bold truncate break-words">{sender.company}</div>
                   {domainInfo?.website_url && (
                     <div className="text-[10px] text-muted-foreground truncate">{domainInfo.website_url}</div>
                   )}
@@ -114,7 +114,7 @@ export function SenderSidebar({ address, name }: { address: string; name?: strin
                       href={sender.website_url.startsWith('http') ? sender.website_url : `https://${sender.website_url}`} 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      className="text-primary hover:underline truncate"
+                      className="text-primary hover:underline break-all line-clamp-2"
                     >
                       {sender.website_url.replace(/^https?:\/\//, '')}
                     </a>
@@ -174,31 +174,31 @@ export function SenderSidebar({ address, name }: { address: string; name?: strin
             </div>
           )}
 
-          <div className="pt-4">
+          <div className="pt-4 min-w-0">
             <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">Email Address</h4>
-            <code className="text-[11px] bg-muted px-2 py-1 rounded block truncate border" title={address}>
+            <code className="text-[11px] bg-muted px-2 py-1 rounded block break-all border leading-relaxed" title={address}>
               {address}
             </code>
           </div>
 
           {recentEmails.length > 0 && (
-            <div className="space-y-3 pt-4 border-t">
+            <div className="space-y-3 pt-4 border-t min-w-0">
               <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                 <History className="w-3.5 h-3.5" />
                 Recent Threads
               </h4>
-              <div className="space-y-3">
+              <div className="space-y-3 min-w-0">
                 {recentEmails.map((email) => (
                   <Link
                     key={email.id}
                     to="/email/$emailId"
                     params={{ emailId: email.id.toString() }}
-                    className="block group/item"
+                    className="block group/item min-w-0"
                   >
-                    <div className="text-[13px] font-medium truncate group-hover/item:text-primary transition-colors">
+                    <div className="text-[13px] font-medium break-words line-clamp-2 group-hover/item:text-primary transition-colors leading-snug">
                       {email.subject || "(No Subject)"}
                     </div>
-                    <div className="text-[10px] text-muted-foreground">
+                    <div className="text-[10px] text-muted-foreground mt-0.5">
                       {format(new Date(email.date), "MMM d, yyyy")}
                     </div>
                   </Link>

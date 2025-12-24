@@ -59,7 +59,7 @@ pub fn get_gravatar_profile_url(email: &str) -> String {
 }
 
 pub fn get_favicon_url(domain: &str) -> String {
-    format!("https://logo.clearbit.com/{}?size=128", domain)
+    format!("https://www.google.com/s2/favicons?domain={}&sz=128", domain)
 }
 
 pub fn extract_domain(email: &str) -> Option<String> {

@@ -175,25 +175,20 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
         if !is_common_provider(d) {
             company = Some(d.clone());
             
-            // Try to enrich domain if not exists
-            let domain_data: Option<Domain> = sqlx::query_as("SELECT * FROM domains WHERE domain = ?")
-                .bind(d)
-                .fetch_optional(&*pool)
-                .await
-                .unwrap_or(None);
-
-            if domain_data.is_none() {
-                // Heuristic: Use clearbit favicon and set up placeholder
-                let logo_url = get_favicon_url(d);
-                let _ = sqlx::query(
-                    "INSERT INTO domains (domain, logo_url, last_enriched_at) VALUES (?, ?, ?)"
-                )
-                .bind(d)
-                .bind(logo_url)
-                .bind(Utc::now())
-                .execute(&*pool)
-                .await;
-            }
+            // Heuristic: Always update/insert domain info to ensure we use the latest provider (e.g. Google instead of Clearbit)
+            let logo_url = get_favicon_url(d);
+            let _ = sqlx::query(
+                "INSERT INTO domains (domain, logo_url, last_enriched_at) 
+                 VALUES (?, ?, ?)
+                 ON CONFLICT(domain) DO UPDATE SET
+                    logo_url = excluded.logo_url,
+                    last_enriched_at = excluded.last_enriched_at"
+            )
+            .bind(d)
+            .bind(logo_url)
+            .bind(Utc::now())
+            .execute(&*pool)
+            .await;
         }
     }
 
@@ -261,12 +256,14 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
 pub async fn proactive_enrichment<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) -> Result<(), String> {
     let pool = app_handle.state::<SqlitePool>();
     
-    // Find unique senders from emails that are NOT in senders table OR have no avatar
+    // Find unique senders from emails that are NOT in senders table OR have no avatar OR use the old Clearbit provider
     let addresses: Vec<String> = sqlx::query_scalar(
         "SELECT DISTINCT e.sender_address 
          FROM emails e 
          LEFT JOIN senders s ON e.sender_address = s.address 
-         WHERE s.address IS NULL OR s.avatar_url IS NULL
+         WHERE s.address IS NULL 
+            OR s.avatar_url IS NULL 
+            OR s.avatar_url LIKE '%clearbit.com%'
          LIMIT 100" // Process in batches to avoid overwhelming APIs
     )
     .fetch_all(&*pool)
