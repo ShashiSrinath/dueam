@@ -283,8 +283,17 @@
   }
 
   .prose-email blockquote {
-    @apply border-l-4 border-gray-300 pl-4 italic my-4;
-    color: #4a4a4a;
+    @apply border-l-2 border-primary/30 pl-4 my-4;
+    color: var(--muted-foreground);
+  }
+
+  /* Gmail-style nested quotes */
+  .prose-email blockquote blockquote {
+    @apply border-l border-primary/20 ml-2;
+  }
+
+  .prose-email .gmail_quote {
+    @apply border-l-2 border-muted pl-4 my-4;
   }
 
   .prose-email ul {

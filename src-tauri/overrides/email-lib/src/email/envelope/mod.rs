@@ -62,6 +62,8 @@ pub struct Envelope {
     pub message_id: String,
     /// The In-Reply-To header from the email message.
     pub in_reply_to: Option<String>,
+    /// The References header from the email message.
+    pub references: Option<String>,
     /// The envelope flags.
     pub flags: Flags,
     /// The first address from the email message header From.
@@ -173,6 +175,7 @@ impl Envelope {
                 });
 
             envelope.in_reply_to = msg.in_reply_to().as_text().map(|mid| format!("<{mid}>"));
+            envelope.references = msg.references().as_text().map(|refs| refs.to_string());
         } else {
             trace!("cannot parse message header, skipping it");
         };

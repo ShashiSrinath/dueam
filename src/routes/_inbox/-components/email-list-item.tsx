@@ -120,6 +120,11 @@ export function EmailListItem({
             )}>
               {email.sender_name || email.sender_address}
             </span>
+            {email.thread_count && email.thread_count > 1 && (
+              <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded-full font-medium text-muted-foreground">
+                {email.thread_count}
+              </span>
+            )}
             {account && (
               <div 
                 title={account.data.email}

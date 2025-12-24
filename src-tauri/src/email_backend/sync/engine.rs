@@ -65,6 +65,17 @@ impl<R: tauri::Runtime> SyncEngine<R> {
             }
         });
 
+        // Start background thread resolution
+        let app_handle_threading = app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                sleep(Duration::from_secs(30)).await;
+                if let Err(e) = Self::resolve_threads(&app_handle_threading).await {
+                    error!("Error during background threading: {}", e);
+                }
+            }
+        });
+
         // Start background identity enrichment
         let app_handle_enrichment = app_handle.clone();
         tauri::async_runtime::spawn(async move {
@@ -142,15 +153,18 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         for env in envelopes {
             let flags: Vec<String> = env.flags.clone().into();
             let res = sqlx::query(
-                "INSERT INTO emails (account_id, folder_id, remote_id, message_id, subject, sender_name, sender_address, date, flags)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                 ON CONFLICT(folder_id, remote_id) DO UPDATE SET 
+                "INSERT INTO emails (account_id, folder_id, remote_id, message_id, thread_id, in_reply_to, references_header, subject, sender_name, sender_address, date, flags)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT(account_id, remote_id) DO UPDATE SET 
                     flags=excluded.flags"
             )
             .bind(account_id)
             .bind(folder_id)
             .bind(&env.id)
             .bind(&env.message_id)
+            .bind(&env.message_id) // Default thread_id to message_id
+            .bind(&env.in_reply_to)
+            .bind(&env.references)
             .bind(&env.subject)
             .bind(&env.from.name)
             .bind(&env.from.addr)
@@ -353,6 +367,46 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         .await
         .map_err(|e| e.to_string())?;
 
+        Ok(())
+    }
+
+    async fn resolve_threads(app_handle: &tauri::AppHandle<R>) -> Result<(), String> {
+        let pool = app_handle.state::<SqlitePool>();
+        
+        // 1. Find emails that are replies but haven't been linked to a thread yet
+        // We look for emails where in_reply_to is set, and thread_id is still just the message_id
+        let unlinked_replies: Vec<(i64, String, String)> = sqlx::query_as(
+            "SELECT id, message_id, in_reply_to FROM emails 
+             WHERE in_reply_to IS NOT NULL AND thread_id = message_id 
+             LIMIT 100"
+        )
+        .fetch_all(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        for (id, _message_id, in_reply_to) in unlinked_replies {
+            // Try to find the parent email
+            let parent: Option<(String,)> = sqlx::query_as(
+                "SELECT thread_id FROM emails WHERE message_id = ? LIMIT 1"
+            )
+            .bind(&in_reply_to)
+            .fetch_optional(&*pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+            if let Some((parent_thread_id,)) = parent {
+                sqlx::query("UPDATE emails SET thread_id = ? WHERE id = ?")
+                    .bind(parent_thread_id)
+                    .bind(id)
+                    .execute(&*pool)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+
+        // 2. Also try linking by references_header if in_reply_to failed
+        // This is more complex, but we can at least try the first reference
+        
         Ok(())
     }
 

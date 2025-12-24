@@ -27,6 +27,8 @@ export type Email = {
   folder_id: number;
   remote_id: string;
   message_id: string | null;
+  thread_id: string | null;
+  thread_count: number | null;
   subject: string | null;
   sender_name: string | null;
   sender_address: string;

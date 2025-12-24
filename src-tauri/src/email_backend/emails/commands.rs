@@ -19,6 +19,10 @@ pub struct Email {
     pub folder_id: i64,
     pub remote_id: String,
     pub message_id: Option<String>,
+    pub thread_id: Option<String>,
+    pub thread_count: Option<i64>,
+    pub in_reply_to: Option<String>,
+    pub references_header: Option<String>,
     pub subject: Option<String>,
     pub sender_name: Option<String>,
     pub sender_address: String,
@@ -84,7 +88,7 @@ pub async fn get_emails<R: tauri::Runtime>(
     let pool = app_handle.state::<SqlitePool>();
     
     let mut query_builder: sqlx::QueryBuilder<sqlx::Sqlite> = sqlx::QueryBuilder::new(
-        "SELECT e.id, e.account_id, e.folder_id, e.remote_id, e.message_id, e.subject, e.sender_name, e.sender_address, e.date, e.flags, e.snippet, e.has_attachments 
+        "SELECT e.id, e.account_id, e.folder_id, e.remote_id, e.message_id, e.thread_id, COUNT(*) as thread_count, e.in_reply_to, e.references_header, e.subject, e.sender_name, e.sender_address, e.date, e.flags, e.snippet, e.has_attachments 
          FROM emails e 
          JOIN folders f ON e.folder_id = f.id "
     );
@@ -124,7 +128,7 @@ pub async fn get_emails<R: tauri::Runtime>(
         };
     }
 
-    query_builder.push(" GROUP BY e.account_id, COALESCE(e.message_id, e.folder_id || '-' || e.remote_id)");
+    query_builder.push(" GROUP BY e.account_id, COALESCE(e.thread_id, e.message_id, e.folder_id || '-' || e.remote_id)");
     query_builder.push(" ORDER BY e.date DESC, e.id DESC LIMIT ");
     query_builder.push_bind(limit.unwrap_or(100) as i64);
     query_builder.push(" OFFSET ");
@@ -167,13 +171,29 @@ pub async fn get_unified_counts<R: tauri::Runtime>(app_handle: tauri::AppHandle<
 pub async fn get_email_by_id<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, email_id: i64) -> Result<Email, String> {
     let pool = app_handle.state::<SqlitePool>();
     let email = sqlx::query_as::<_, Email>(
-        "SELECT id, account_id, folder_id, remote_id, message_id, subject, sender_name, sender_address, date, flags, snippet, has_attachments FROM emails WHERE id = ?"
+        "SELECT id, account_id, folder_id, remote_id, message_id, thread_id, 1 as thread_count, in_reply_to, references_header, subject, sender_name, sender_address, date, flags, snippet, has_attachments FROM emails WHERE id = ?"
     )
     .bind(email_id)
     .fetch_one(&*pool)
     .await
     .map_err(|e| e.to_string())?;
     Ok(email)
+}
+
+#[tauri::command]
+pub async fn get_thread_emails<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, thread_id: String) -> Result<Vec<Email>, String> {
+    let pool = app_handle.state::<SqlitePool>();
+    let emails = sqlx::query_as::<_, Email>(
+        "SELECT id, account_id, folder_id, remote_id, message_id, thread_id, 1 as thread_count, in_reply_to, references_header, subject, sender_name, sender_address, date, flags, snippet, has_attachments 
+         FROM emails 
+         WHERE thread_id = ? 
+         ORDER BY date ASC"
+    )
+    .bind(thread_id)
+    .fetch_all(&*pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(emails)
 }
 
 #[tauri::command]
@@ -568,7 +588,7 @@ pub async fn search_emails<R: tauri::Runtime>(
     };
 
     let mut query_builder: sqlx::QueryBuilder<sqlx::Sqlite> = sqlx::QueryBuilder::new(
-        "SELECT e.id, e.account_id, e.folder_id, e.remote_id, e.message_id, e.subject, e.sender_name, e.sender_address, e.date, e.flags, e.snippet, e.has_attachments 
+        "SELECT e.id, e.account_id, e.folder_id, e.remote_id, e.message_id, e.thread_id, COUNT(*) as thread_count, e.in_reply_to, e.references_header, e.subject, e.sender_name, e.sender_address, e.date, e.flags, e.snippet, e.has_attachments 
          FROM emails e 
          JOIN folders f ON e.folder_id = f.id 
          JOIN emails_fts fts ON e.id = fts.rowid 
@@ -595,7 +615,7 @@ pub async fn search_emails<R: tauri::Runtime>(
         };
     }
 
-    query_builder.push(" GROUP BY e.account_id, COALESCE(e.message_id, e.folder_id || '-' || e.remote_id)");
+    query_builder.push(" GROUP BY e.account_id, COALESCE(e.thread_id, e.message_id, e.folder_id || '-' || e.remote_id)");
     query_builder.push(" ORDER BY e.date DESC, e.id DESC LIMIT ");
     query_builder.push_bind(limit.unwrap_or(100) as i64);
     query_builder.push(" OFFSET ");
