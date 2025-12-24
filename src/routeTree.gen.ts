@@ -9,12 +9,18 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as InboxRouteImport } from './routes/_inbox'
 import { Route as InboxIndexRouteImport } from './routes/_inbox/index'
 import { Route as AccountsNewRouteImport } from './routes/accounts/new'
 import { Route as InboxEmailEmailIdRouteImport } from './routes/_inbox/email.$emailId'
 
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OnboardingRoute = OnboardingRouteImport.update({
   id: '/onboarding',
   path: '/onboarding',
@@ -42,12 +48,14 @@ const InboxEmailEmailIdRoute = InboxEmailEmailIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/onboarding': typeof OnboardingRoute
+  '/settings': typeof SettingsRoute
   '/accounts/new': typeof AccountsNewRoute
   '/': typeof InboxIndexRoute
   '/email/$emailId': typeof InboxEmailEmailIdRoute
 }
 export interface FileRoutesByTo {
   '/onboarding': typeof OnboardingRoute
+  '/settings': typeof SettingsRoute
   '/accounts/new': typeof AccountsNewRoute
   '/': typeof InboxIndexRoute
   '/email/$emailId': typeof InboxEmailEmailIdRoute
@@ -56,19 +64,26 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_inbox': typeof InboxRouteWithChildren
   '/onboarding': typeof OnboardingRoute
+  '/settings': typeof SettingsRoute
   '/accounts/new': typeof AccountsNewRoute
   '/_inbox/': typeof InboxIndexRoute
   '/_inbox/email/$emailId': typeof InboxEmailEmailIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/onboarding' | '/accounts/new' | '/' | '/email/$emailId'
+  fullPaths:
+    | '/onboarding'
+    | '/settings'
+    | '/accounts/new'
+    | '/'
+    | '/email/$emailId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/onboarding' | '/accounts/new' | '/' | '/email/$emailId'
+  to: '/onboarding' | '/settings' | '/accounts/new' | '/' | '/email/$emailId'
   id:
     | '__root__'
     | '/_inbox'
     | '/onboarding'
+    | '/settings'
     | '/accounts/new'
     | '/_inbox/'
     | '/_inbox/email/$emailId'
@@ -77,11 +92,19 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   InboxRoute: typeof InboxRouteWithChildren
   OnboardingRoute: typeof OnboardingRoute
+  SettingsRoute: typeof SettingsRoute
   AccountsNewRoute: typeof AccountsNewRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/onboarding': {
       id: '/onboarding'
       path: '/onboarding'
@@ -135,6 +158,7 @@ const InboxRouteWithChildren = InboxRoute._addFileChildren(InboxRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   InboxRoute: InboxRouteWithChildren,
   OnboardingRoute: OnboardingRoute,
+  SettingsRoute: SettingsRoute,
   AccountsNewRoute: AccountsNewRoute,
 }
 export const routeTree = rootRouteImport

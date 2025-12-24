@@ -133,7 +133,7 @@ function EmailDetail() {
       </div>
 
       <ScrollArea className="flex-1 min-h-0 bg-email-view">
-        <div className="max-w-4xl mx-auto my-8 p-8 bg-background rounded-xl shadow-sm border space-y-8">
+        <div className="max-w-4xl mx-auto my-8 p-8 bg-background rounded-xl shadow-sm border space-y-8 email-paper">
           <Suspense fallback={
             <div className="space-y-4">
               <Skeleton className="h-4 w-3/4" />
@@ -154,13 +154,13 @@ function EmailDetail() {
                 return (
                   <>
                     <div 
-                      className="prose prose-sm max-w-none dark:prose-invert"
+                      className="prose-email max-w-none"
                       onClick={handleContentClick}
                     >
                       {sanitizedHtml ? (
                         <div dangerouslySetInnerHTML={{ __html: sanitizedHtml }} />
                       ) : (
-                        <pre className="whitespace-pre-wrap font-sans text-sm">
+                        <pre className="whitespace-pre-wrap font-sans text-sm text-[#1a1a1a]">
                           {content.body_text || "No content available."}
                         </pre>
                       )}

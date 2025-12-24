@@ -53,6 +53,23 @@ Act as a desktop email client with **multiple inboxes in the same view** (Unifie
 - [x] **Deep System Integration**: Native notifications, keyboard shortcuts, and tray icons.
 - [x] **Bug Fixes**: Resolved SQLite syntax error in unified counts and improved IMAP error handling.
 
+## Phase 6: Settings & Personalization (Complete)
+
+- [x] **Settings UI**:
+  - [x] Create a dedicated Settings page accessible via the sidebar.
+  - [x] Move "Add Account" and account management from the sidebar to the Settings UI.
+  - [x] Implement a tabbed interface for different settings categories (Accounts, Appearance, General).
+- [x] **Advanced Theming & Appearance**:
+  - [x] Multi-theme support: Go beyond light/dark with predefined color schemes (e.g., Nord, Rose Pine, Dracula).
+  - [x] Custom Accent Colors: Allow users to choose their primary brand color.
+  - [x] UI Density: Options for "Compact", "Comfortable", and "Spacious" layouts.
+  - [x] Font Customization: Selection of UI fonts and font sizes.
+  - [x] Support system theme synchronization.
+  - [x] Ensure theme persistence across app restarts.
+- [x] **Persistence**:
+  - [x] Create a robust mechanism for saving user preferences.
+  - [x] Store all settings and preferences in the existing SQLite database to ensure centralized, reliable persistence.
+
 ---
 
 ## Tech Stack

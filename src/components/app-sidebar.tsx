@@ -13,7 +13,6 @@ import {
 import {
   Inbox,
   Mail,
-  Plus,
   Settings,
   Star,
   PenLine,
@@ -31,7 +30,7 @@ import { EmailComposer } from "./email-composer";
 export function AppSidebar() {
   const accounts = useEmailStore((state) => state.accounts);
   const unifiedCounts = useEmailStore((state) => state.unifiedCounts);
-  const search = useSearch({ from: "/_inbox" });
+  const search = useSearch({ strict: false }) as any;
   const composer = useEmailStore((state) => state.composer);
   const setComposer = useEmailStore((state) => state.setComposer);
 
@@ -265,14 +264,6 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild>
-                  <Link to="/accounts/new">
-                    <Plus className="w-4 h-4" />
-                    <span>Add Account</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -281,7 +272,7 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild>
-              <Link to="/">
+              <Link to="/settings" search={{ tab: "general" }}>
                 <Settings className="w-4 h-4" />
                 <span>Settings</span>
               </Link>

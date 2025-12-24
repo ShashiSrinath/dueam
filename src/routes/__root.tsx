@@ -8,6 +8,7 @@ import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useEmailStore } from "@/lib/store";
+import { useSettingsStore } from "@/lib/settings-store";
 import { useEffect } from "react";
 import { Mail } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
@@ -19,6 +20,36 @@ const RootLayout = () => {
   const accounts = useEmailStore((state) => state.accounts);
   const isInitialized = useEmailStore((state) => state.isInitialized);
   const init = useEmailStore((state) => state.init);
+  const settings = useSettingsStore((state) => state.settings);
+  const initSettings = useSettingsStore((state) => state.init);
+
+  useEffect(() => {
+    initSettings();
+  }, [initSettings]);
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    root.classList.remove("light", "dark", "nord", "rose-pine", "dracula");
+    
+    if (settings.theme === "system") {
+      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      root.classList.add(systemTheme);
+    } else {
+      root.classList.add(settings.theme);
+    }
+
+    // Apply density
+    root.classList.remove("density-compact", "density-comfortable", "density-spacious");
+    root.classList.add(`density-${settings.density}`);
+
+    // Apply accent color
+    root.classList.remove("accent-blue", "accent-purple", "accent-green", "accent-orange", "accent-pink");
+    root.classList.add(`accent-${settings.accentColor}`);
+
+    // Apply font size
+    root.style.fontSize = `${settings.fontSize}px`;
+    root.style.fontFamily = settings.fontFamily;
+  }, [settings]);
 
   const isAuthRoute =
     pathname === "/onboarding" || pathname === "/accounts/new";
