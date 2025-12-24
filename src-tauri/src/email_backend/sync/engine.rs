@@ -81,9 +81,8 @@ impl SyncEngine {
             sqlx::query(
                 "INSERT INTO emails (account_id, folder_id, remote_id, message_id, subject, sender_name, sender_address, date, flags)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                 ON CONFLICT(account_id, remote_id) DO UPDATE SET 
-                    flags=excluded.flags,
-                    folder_id=excluded.folder_id"
+                 ON CONFLICT(folder_id, remote_id) DO UPDATE SET 
+                    flags=excluded.flags"
             )
             .bind(account_id)
             .bind(folder_id)

@@ -232,7 +232,14 @@ pub async fn get_emails<R: tauri::Runtime>(
 
     let l = limit.unwrap_or(100);
     let o = offset.unwrap_or(0);
-    let query_str = format!("{} {} ORDER BY date DESC LIMIT {} OFFSET {}", base_query, where_clause, l, o);
+    
+    let group_by = if folder_id.is_none() {
+        "GROUP BY COALESCE(message_id, remote_id)"
+    } else {
+        ""
+    };
+
+    let query_str = format!("{} {} {} ORDER BY date DESC LIMIT {} OFFSET {}", base_query, where_clause, group_by, l, o);
     
     let mut query = sqlx::query_as::<_, Email>(&query_str);
     for binding in bindings {
