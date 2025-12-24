@@ -213,8 +213,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
       if (params.search) {
         fetchedEmails = await invoke<Email[]>("search_emails", {
-          query_text: params.search,
-          account_id: params.account_id || null,
+          queryText: params.search,
+          accountId: params.account_id || null,
           view: params.view || null,
           limit,
           offset: 0,
@@ -307,8 +307,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     try {
       const newEmails = lastSearchParams.search
         ? await invoke<Email[]>("search_emails", {
-            query_text: lastSearchParams.search,
-            account_id: lastSearchParams.account_id || null,
+            queryText: lastSearchParams.search,
+            accountId: lastSearchParams.account_id || null,
             view: lastSearchParams.view || null,
             limit: PAGE_SIZE,
             offset: emails.length,

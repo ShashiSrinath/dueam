@@ -564,7 +564,7 @@ pub async fn search_emails<R: tauri::Runtime>(
     let fts_query = if fts_query.contains(' ') {
         format!("\"{}\"", fts_query)
     } else {
-        format!("*{}*", fts_query)
+        format!("{}*", fts_query)
     };
 
     let mut query_builder: sqlx::QueryBuilder<sqlx::Sqlite> = sqlx::QueryBuilder::new(
