@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { format } from "date-fns";
-import { Paperclip, Check } from "lucide-react";
+import { Paperclip, Check, Reply, Forward } from "lucide-react";
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Email, useEmailStore } from "@/lib/store";
@@ -116,6 +116,8 @@ export function EmailListItem({
       <div className="flex-1 min-w-0 flex flex-col gap-0.5">
         <div className="flex justify-between items-start">
           <div className="flex items-center gap-1.5 overflow-hidden">
+            {email.is_reply && <Reply className="w-3 h-3 text-muted-foreground shrink-0" />}
+            {email.is_forward && <Forward className="w-3 h-3 text-muted-foreground shrink-0" />}
             <span className={cn(
               "truncate text-sm", 
               isUnread ? "font-bold text-foreground" : "font-medium text-muted-foreground"

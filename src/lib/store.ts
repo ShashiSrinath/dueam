@@ -36,6 +36,8 @@ export type Email = {
   flags: string;
   snippet: string | null;
   has_attachments: boolean;
+  is_reply: boolean;
+  is_forward: boolean;
 };
 
 export type Sender = {
@@ -280,6 +282,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
             ? d.body_html.replace(/<[^>]*>/g, "").substring(0, 100)
             : null,
           has_attachments: false,
+          is_reply: false,
+          is_forward: false,
         }));
       } else {
         fetchedEmails = await invoke<Email[]>("get_emails", {

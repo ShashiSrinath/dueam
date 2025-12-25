@@ -28,7 +28,7 @@ describe("ThreadView", () => {
   });
 
   it("renders email content and handles null content gracefully", async () => {
-    mockInvoke.mockImplementation((command, args) => {
+    mockInvoke.mockImplementation((command, _args) => {
       if (command === "get_email_by_id") return Promise.resolve(mockEmail);
       if (command === "get_thread_emails") return Promise.resolve(mockThreadEmails);
       if (command === "get_email_content") {

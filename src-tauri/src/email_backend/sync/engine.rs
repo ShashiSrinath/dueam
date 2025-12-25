@@ -35,6 +35,58 @@ const SYNC_BATCH_SIZE: u32 = 100;
 
 use tauri_plugin_notification::NotificationExt;
 
+fn normalize_subject(subject: &str) -> String {
+    let mut s = subject.trim().to_lowercase();
+    
+    loop {
+        let prev = s.clone();
+        
+        // Strip common email prefixes
+        if s.starts_with("re:") {
+            s = s[3..].trim().to_string();
+        } else if s.starts_with("fwd:") {
+            s = s[4..].trim().to_string();
+        } else if s.starts_with("fw:") {
+            s = s[3..].trim().to_string();
+        } 
+        // Strip common notification prefixes
+        else if s.starts_with("status changed:") {
+            s = s[15..].trim().to_string();
+        } else if s.starts_with("new comment:") {
+            s = s[12..].trim().to_string();
+        } else if s.starts_with("new task:") {
+            s = s[9..].trim().to_string();
+        } else if s.starts_with("task deleted:") {
+            s = s[13..].trim().to_string();
+        } else if s.starts_with("overdue:") {
+            s = s[8..].trim().to_string();
+        } else if s.starts_with("reminder:") {
+            s = s[9..].trim().to_string();
+        }
+        // Strip bracketed prefixes like [Project-Name] or [Overdue]
+        else if s.starts_with("[") {
+            if let Some(end_bracket) = s.find(']') {
+                let prefix = &s[1..end_bracket];
+                // Only strip if it's a short prefix or common one
+                if prefix.len() < 20 || prefix == "overdue" || prefix == "clickup" {
+                    s = s[end_bracket + 1..].trim().to_string();
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+        
+        if s == prev {
+            break;
+        }
+    }
+    s
+}
+
 impl<R: tauri::Runtime> SyncEngine<R> {
     pub fn new(app_handle: tauri::AppHandle<R>) -> Self {
         Self { 
@@ -78,10 +130,20 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         let app_handle_threading = app_handle.clone();
         tauri::async_runtime::spawn(async move {
             loop {
-                sleep(Duration::from_secs(30)).await;
-                if let Err(e) = Self::resolve_threads(&app_handle_threading).await {
+                let pool = app_handle_threading.state::<SqlitePool>();
+                let backlog_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM emails WHERE thread_id = message_id AND normalized_subject IS NOT NULL AND normalized_subject != ''")
+                    .fetch_one(&*pool)
+                    .await
+                    .unwrap_or(0);
+                
+                // If we have a large backlog, run more aggressively
+                let sleep_time = if backlog_count > 1000 { 5 } else { 30 };
+                let batch_size = if backlog_count > 1000 { 2000 } else { 100 };
+
+                if let Err(e) = Self::resolve_threads(&app_handle_threading, batch_size).await {
                     error!("Error during background threading: {}", e);
                 }
+                sleep(Duration::from_secs(sleep_time)).await;
             }
         });
 
@@ -182,10 +244,11 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         for env in envelopes {
             let flags: Vec<String> = env.flags.clone().into();
             let date_str = env.date.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            let norm_subject = normalize_subject(&env.subject);
             
             let res = sqlx::query(
-                "INSERT INTO emails (account_id, folder_id, remote_id, message_id, thread_id, in_reply_to, references_header, subject, sender_name, sender_address, date, flags)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                "INSERT INTO emails (account_id, folder_id, remote_id, message_id, thread_id, in_reply_to, references_header, subject, normalized_subject, sender_name, sender_address, date, flags)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(folder_id, remote_id) DO UPDATE SET 
                     flags=excluded.flags"
             )
@@ -197,6 +260,7 @@ impl<R: tauri::Runtime> SyncEngine<R> {
             .bind(&env.in_reply_to)
             .bind(&env.references)
             .bind(&env.subject)
+            .bind(norm_subject)
             .bind(&env.from.name)
             .bind(&env.from.addr)
             .bind(&date_str)
@@ -456,22 +520,21 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         Ok(())
     }
 
-    async fn resolve_threads(app_handle: &tauri::AppHandle<R>) -> Result<(), String> {
+    async fn resolve_threads(app_handle: &tauri::AppHandle<R>, limit: i64) -> Result<(), String> {
         let pool = app_handle.state::<SqlitePool>();
         
-        // 1. Find emails that are replies but haven't been linked to a thread yet
-        // We look for emails where in_reply_to is set, and thread_id is still just the message_id
+        // 1. Link by in_reply_to (High confidence)
         let unlinked_replies: Vec<(i64, String, String)> = sqlx::query_as(
             "SELECT id, message_id, in_reply_to FROM emails 
              WHERE in_reply_to IS NOT NULL AND thread_id = message_id 
-             LIMIT 100"
+             LIMIT ?"
         )
+        .bind(limit)
         .fetch_all(&*pool)
         .await
         .map_err(|e| e.to_string())?;
 
         for (id, _message_id, in_reply_to) in unlinked_replies {
-            // Try to find the parent email
             let parent: Option<(String,)> = sqlx::query_as(
                 "SELECT thread_id FROM emails WHERE message_id = ? LIMIT 1"
             )
@@ -490,8 +553,61 @@ impl<R: tauri::Runtime> SyncEngine<R> {
             }
         }
 
-        // 2. Also try linking by references_header if in_reply_to failed
-        // This is more complex, but we can at least try the first reference
+        // 2. Link by references_header (High confidence)
+        let unlinked_refs: Vec<(i64, String, String)> = sqlx::query_as(
+            "SELECT id, message_id, references_header FROM emails 
+             WHERE references_header IS NOT NULL AND thread_id = message_id 
+             LIMIT ?"
+        )
+        .bind(limit)
+        .fetch_all(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        for (id, _message_id, refs) in unlinked_refs {
+            let ref_ids: Vec<&str> = refs.split(|c| c == ' ' || c == ',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+            for ref_id in ref_ids.iter().rev() {
+                let parent: Option<(String,)> = sqlx::query_as(
+                    "SELECT thread_id FROM emails WHERE message_id = ? LIMIT 1"
+                )
+                .bind(ref_id)
+                .fetch_optional(&*pool)
+                .await
+                .map_err(|e| e.to_string())?;
+
+                if let Some((parent_thread_id,)) = parent {
+                    sqlx::query("UPDATE emails SET thread_id = ? WHERE id = ?")
+                        .bind(parent_thread_id)
+                        .bind(id)
+                        .execute(&*pool)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    break;
+                }
+            }
+        }
+
+        // 3. Heuristic Bulk Threading (Subject + Sender) as fallback
+        // This sets the thread_id to the earliest message_id in the group
+        let _ = sqlx::query(
+            "UPDATE emails 
+             SET thread_id = (
+                SELECT MIN(e2.message_id) 
+                FROM emails e2 
+                WHERE e2.account_id = emails.account_id 
+                  AND e2.sender_address = emails.sender_address 
+                  AND e2.normalized_subject = emails.normalized_subject
+                  AND e2.normalized_subject IS NOT NULL 
+                  AND e2.normalized_subject != ''
+             )
+             WHERE thread_id = message_id 
+               AND normalized_subject IS NOT NULL 
+               AND normalized_subject != ''
+               AND id IN (SELECT id FROM emails WHERE thread_id = message_id LIMIT ?)"
+        )
+        .bind(limit)
+        .execute(&*pool)
+        .await;
         
         Ok(())
     }

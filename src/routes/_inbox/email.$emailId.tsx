@@ -1,13 +1,12 @@
-import { createFileRoute, defer, Await } from "@tanstack/react-router";
-import { Suspense, useState, useEffect, useMemo, useRef } from "react";
+import { createFileRoute } from "@tanstack/react-router";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { format } from "date-fns";
-import { Mail, Clock, Paperclip, Reply, Forward, ChevronDown, ChevronRight, MoreHorizontal } from "lucide-react";
+import { Mail, Paperclip, Reply, Forward, ChevronDown, ChevronRight, MoreHorizontal } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import DOMPurify from "dompurify";
 import { useEmailStore, Attachment, EmailContent, Email } from "@/lib/store";
 import { SenderSidebar } from "./-components/sender-sidebar";
@@ -18,17 +17,7 @@ export const Route = createFileRoute("/_inbox/email/$emailId")({
   loader: async ({ params: { emailId } }) => {
     const id = parseInt(emailId);
     const email = await invoke<Email>("get_email_by_id", { emailId: id });
-
-    // Fetch all emails in the same thread if thread_id exists
-    let threadEmails: Email[] = [email];
-    if (email.thread_id) {
-        threadEmails = await invoke<Email[]>("get_thread_emails", { threadId: email.thread_id });
-    }
-
-    return {
-      email,
-      threadEmails,
-    };
+    return { email };
   },
   onEnter: ({ params: { emailId } }) => {
     const id = parseInt(emailId);
@@ -37,17 +26,62 @@ export const Route = createFileRoute("/_inbox/email/$emailId")({
   component: ThreadView,
 });
 
+const normalizeSubject = (subject: string | null) => {
+    if (!subject) return "(No Subject)";
+    return subject.replace(/^(Re|Fwd|Fw|fw|re|fwd):\s+/ig, "").trim();
+};
+
+const THREAD_PAGE_SIZE = 20;
+
 export function ThreadView() {
-  const { email, threadEmails } = Route.useLoaderData();
+  const { email } = Route.useLoaderData();
   const setComposer = useEmailStore(state => state.setComposer);
+  const [threadEmails, setThreadEmails] = useState<Email[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(false);
+  const [offset, setOffset] = useState(0);
+
+  const displaySubject = useMemo(() => normalizeSubject(email.subject), [email.subject]);
+
+  const fetchThread = useCallback(async (newOffset: number, append: boolean) => {
+    setLoading(true);
+    try {
+        const emails = await invoke<Email[]>("get_thread_emails", { 
+            emailId: email.id, 
+            limit: THREAD_PAGE_SIZE, 
+            offset: newOffset 
+        });
+        
+        if (append) {
+            setThreadEmails(prev => [...prev, ...emails]);
+        } else {
+            setThreadEmails(emails);
+        }
+        setHasMore(emails.length === THREAD_PAGE_SIZE);
+        setOffset(newOffset);
+    } catch (err) {
+        console.error("Failed to fetch thread:", err);
+    } finally {
+        setLoading(false);
+    }
+  }, [email.id]);
+
+  useEffect(() => {
+    fetchThread(0, false);
+  }, [fetchThread]);
+
+  const loadMore = () => {
+    if (loading || !hasMore) return;
+    fetchThread(offset + THREAD_PAGE_SIZE, true);
+  };
 
   return (
     <div className="flex h-full w-full min-w-0 overflow-hidden">
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        <div className="p-6 border-b bg-background z-10 shrink-0">
+        <div className="p-6 border-b bg-background z-10 shrink-0 shadow-sm">
           <div className="max-w-4xl mx-auto w-full">
             <div className="flex justify-between items-start gap-4">
-              <h2 className="text-2xl font-bold flex-1 break-words line-clamp-2">{email.subject || "(No Subject)"}</h2>
+              <h2 className="text-2xl font-bold flex-1 break-words line-clamp-2">{displaySubject}</h2>
               <div className="flex gap-2 shrink-0">
                 <Button variant="outline" size="sm" onClick={() => {
                   setComposer({
@@ -87,11 +121,24 @@ ${email.snippet || ""}`,
               <ThreadMessage
                 key={msg.id}
                 email={msg}
-                isLast={index === threadEmails.length - 1}
-                defaultExpanded={index === threadEmails.length - 1 || threadEmails.length === 1}
+                defaultExpanded={index === 0}
               />
             ))}
-            <div className="h-20 shrink-0" /> {/* Bottom spacing */}
+            
+            {hasMore && (
+                <div className="p-8 flex justify-center">
+                    <Button 
+                        variant="ghost" 
+                        onClick={loadMore} 
+                        disabled={loading}
+                        className="text-muted-foreground hover:text-foreground"
+                    >
+                        {loading ? "Loading..." : "Load older messages"}
+                    </Button>
+                </div>
+            )}
+            
+            <div className="h-20 shrink-0" />
           </div>
         </ScrollArea>
       </div>
@@ -100,7 +147,7 @@ ${email.snippet || ""}`,
   );
 }
 
-function ThreadMessage({ email, isLast, defaultExpanded }: { email: Email, isLast: boolean, defaultExpanded: boolean }) {
+function ThreadMessage({ email, defaultExpanded }: { email: Email, defaultExpanded: boolean }) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [content, setContent] = useState<EmailContent | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -162,9 +209,13 @@ function ThreadMessage({ email, isLast, defaultExpanded }: { email: Email, isLas
             />
             <div className="flex-1 min-w-0 flex items-center justify-between">
             <div className="flex flex-col min-w-0">
-                <span className="font-bold text-foreground text-base truncate">
-                {email.sender_name || email.sender_address}
-                </span>
+                <div className="flex items-center gap-2">
+                    <span className="font-bold text-foreground text-base truncate">
+                    {email.sender_name || email.sender_address}
+                    </span>
+                    {email.is_reply && <Reply className="w-3.5 h-3.5 text-muted-foreground" />}
+                    {email.is_forward && <Forward className="w-3.5 h-3.5 text-muted-foreground" />}
+                </div>
                 {!isExpanded && (
                     <span className="text-sm text-muted-foreground truncate italic max-w-[500px]">
                         {email.snippet}
