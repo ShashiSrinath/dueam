@@ -59,13 +59,12 @@ const aiSettingsSchema = z.object({
 type AiSettingsValues = z.infer<typeof aiSettingsSchema>;
 
 function AiSettingsTab() {
-  const settings = useSettingsStore((state) => ({
-    aiEnabled: state.settings.aiEnabled,
-    aiBaseUrl: state.settings.aiBaseUrl,
-    aiApiKey: state.settings.aiApiKey,
-    aiModel: state.settings.aiModel,
-  }));
+  const aiEnabled = useSettingsStore((state) => state.settings.aiEnabled);
+  const aiBaseUrl = useSettingsStore((state) => state.settings.aiBaseUrl);
+  const aiApiKey = useSettingsStore((state) => state.settings.aiApiKey);
+  const aiModel = useSettingsStore((state) => state.settings.aiModel);
   const updateSetting = useSettingsStore((state) => state.updateSetting);
+  
   const [showApiKey, setShowApiKey] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [availableModels, setAvailableModels] = useState<{ id: string }[]>([]);
@@ -73,35 +72,31 @@ function AiSettingsTab() {
   const form = useForm<AiSettingsValues>({
     resolver: zodResolver(aiSettingsSchema),
     defaultValues: {
-      aiEnabled: settings.aiEnabled,
-      aiBaseUrl: settings.aiBaseUrl,
-      aiApiKey: settings.aiApiKey,
-      aiModel: settings.aiModel,
+      aiEnabled,
+      aiBaseUrl,
+      aiApiKey,
+      aiModel,
     },
   });
 
   // Update form when settings change (e.g. after initial fetch)
+  // Only reset if form is NOT dirty to avoid interrupting user typing
   useEffect(() => {
-    const currentValues = form.getValues();
-    const hasChanged = 
-      settings.aiEnabled !== currentValues.aiEnabled ||
-      settings.aiBaseUrl !== currentValues.aiBaseUrl ||
-      settings.aiApiKey !== currentValues.aiApiKey ||
-      settings.aiModel !== currentValues.aiModel;
-
-    if (hasChanged && !form.formState.isDirty) {
+    if (!form.formState.isDirty) {
       form.reset({
-        aiEnabled: settings.aiEnabled,
-        aiBaseUrl: settings.aiBaseUrl,
-        aiApiKey: settings.aiApiKey,
-        aiModel: settings.aiModel,
+        aiEnabled,
+        aiBaseUrl,
+        aiApiKey,
+        aiModel,
       });
     }
-  }, [settings.aiEnabled, settings.aiBaseUrl, settings.aiApiKey, settings.aiModel, form]);
+  }, [aiEnabled, aiBaseUrl, aiApiKey, aiModel, form]);
 
   const onFieldBlur = async (name: keyof AiSettingsValues) => {
     const value = form.getValues(name);
-    if (value !== settings[name]) {
+    // Compare with current store value to avoid redundant updates
+    const currentStoreValue = useSettingsStore.getState().settings[name];
+    if (value !== currentStoreValue) {
       await updateSetting(name, value);
     }
   };
