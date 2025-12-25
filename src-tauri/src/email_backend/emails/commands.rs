@@ -306,25 +306,55 @@ pub async fn get_email_content<R: tauri::Runtime>(app_handle: tauri::AppHandle<R
     .await
     .map_err(|e| e.to_string())?;
 
-    let (account_id, remote_id, folder_path) = email_info;
+    let (account_id, remote_id, _folder_path) = email_info;
     let manager = AccountManager::new(&app_handle).await?;
     let account = manager.get_account_by_id(account_id).await?;
     let (account_config, imap_config, _) = account.get_configs()?;
 
-    let backend_builder = BackendBuilder::new(
-        account_config.clone(),
-        ImapContextBuilder::new(account_config, imap_config),
-    );
+    use email::imap::{ImapContext, ImapContextBuilder};
+    use email::backend::context::BackendContextBuilder;
+    use imap_client::imap_next::imap_types::sequence::Sequence;
+    use imap_client::imap_next::imap_types::error::ValidationError;
 
-    let backend = backend_builder.build().await.map_err(|e| e.to_string())?;
+    // Create a fresh, dedicated connection for this request to avoid pool starvation
+    let ctx_builder = ImapContextBuilder::new(account_config.clone(), imap_config)
+        .with_pool_size(1); // Just one connection for this one-off request
+
+    let context: ImapContext = BackendContextBuilder::build(ctx_builder)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut client = context.client().await;
     
     let id = Id::single(remote_id);
-    let messages = backend.get_messages(&folder_path, &id).await.map_err(|e| e.to_string())?;
+    use imap_client::imap_next::imap_types::fetch::MessageDataItemName;
+    use imap_client::imap_next::imap_types::fetch::MacroOrMessageDataItemNames;
+    let fetch_items = MacroOrMessageDataItemNames::MessageDataItemNames(vec![
+        MessageDataItemName::BodyExt {
+            section: None,
+            partial: None,
+            peek: true,
+        }
+    ]);
+    
+    // Select the mailbox first
+    client.examine_mailbox(&_folder_path).await.map_err(|e| e.to_string())?;
+
+    use std::num::NonZeroU32;
+    let uids: imap_client::imap_next::imap_types::sequence::SequenceSet = id.iter()
+        .filter_map(|s| s.parse::<u32>().ok())
+        .filter_map(|n| NonZeroU32::new(n))
+        .map(Sequence::from)
+        .collect::<Vec<_>>()
+        .try_into()
+        .map_err(|e: ValidationError| e.to_string())?;
+
+    let messages = client.fetch_messages_with_items(uids, fetch_items).await.map_err(|e| e.to_string())?;
     let message = messages.first().ok_or("Email not found on server")?;
 
-    let parsed = message.parsed().map_err(|e| e.to_string())?;
-    let body_text = parsed.body_text(0).map(|b| b.to_string());
-    let body_html = parsed.body_html(0).map(|b| b.to_string());
+    let parsed = message.parsed().map_err(|e: email::Error| e.to_string())?;
+    let body_text: Option<String> = parsed.body_text(0).map(|b| b.to_string());
+    let body_html: Option<String> = parsed.body_html(0).map(|b| b.to_string());
 
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 

@@ -731,9 +731,15 @@ impl<R: tauri::Runtime> SyncEngine<R> {
                 }
             };
 
-            for (email_id, remote_id, folder_path) in emails {
+            use tokio::sync::MutexGuard;
+            let mut client: MutexGuard<ImapClient> = backend.context.client().await;
+
+            for (email_id, remote_id, _folder_path) in emails {
                 let id = email::envelope::Id::single(remote_id);
-                match backend.get_messages(&folder_path, &id).await {
+                use imap_client::imap_next::imap_types::sequence::Sequence;
+                let uids = id.iter().filter_map(|id| Sequence::try_from(id.to_string().as_str()).ok()).collect::<Vec<_>>().try_into().unwrap();
+                
+                match client.fetch_messages(uids).await {
                     Ok(messages) => {
                         if let Some(message) = messages.first() {
                             if let Ok(parsed) = message.parsed() {

@@ -17,7 +17,7 @@ use imap_client::{
             sort::SortCriterion,
             thread::{Thread, ThreadingAlgorithm},
         },
-        fetch::MessageDataItem,
+        fetch::{MacroOrMessageDataItemNames, MessageDataItem},
         flag::{Flag, StoreType},
         search::SearchKey,
         sequence::SequenceSet,
@@ -743,10 +743,15 @@ impl ImapClient {
 
     #[instrument(skip_all, fields(client = self.id))]
     pub async fn fetch_messages(&mut self, uids: SequenceSet) -> Result<Messages> {
+        self.fetch_messages_with_items(uids, FETCH_MESSAGES.clone()).await
+    }
+
+    #[instrument(skip_all, fields(client = self.id))]
+    pub async fn fetch_messages_with_items(&mut self, uids: SequenceSet, items: MacroOrMessageDataItemNames<'static>) -> Result<Messages> {
         let mut fetches = loop {
             let res = self
                 .retry
-                .timeout(self.inner.uid_fetch(uids.clone(), FETCH_MESSAGES.clone()))
+                .timeout(self.inner.uid_fetch(uids.clone(), items.clone()))
                 .await;
 
             match self.retry(res).await? {
@@ -766,25 +771,7 @@ impl ImapClient {
 
     #[instrument(skip_all, fields(client = self.id))]
     pub async fn peek_messages(&mut self, uids: SequenceSet) -> Result<Messages> {
-        let mut fetches = loop {
-            let res = self
-                .retry
-                .timeout(self.inner.uid_fetch(uids.clone(), PEEK_MESSAGES.clone()))
-                .await;
-
-            match self.retry(res).await? {
-                ImapRetryState::Retry => continue,
-                ImapRetryState::TimedOut => break Err(Error::FetchMessagesTimedOutError),
-                ImapRetryState::Ok(res) => break res.map_err(Error::FetchMessagesError),
-            }
-        }?;
-
-        let fetches: Vec<_> = uids
-            .iter(NonZeroU32::MAX)
-            .filter_map(|ref uid| fetches.remove(uid))
-            .collect();
-
-        Ok(Messages::from(fetches))
+        self.fetch_messages_with_items(uids, PEEK_MESSAGES.clone()).await
     }
 
     #[instrument(skip_all, fields(client = self.id))]

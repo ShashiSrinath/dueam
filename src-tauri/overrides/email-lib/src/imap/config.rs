@@ -60,7 +60,7 @@ pub struct ImapConfig {
 
 impl ImapConfig {
     pub fn clients_pool_size(&self) -> u8 {
-        self.clients_pool_size.unwrap_or(1)
+        self.clients_pool_size.unwrap_or(5)
     }
 
     pub fn send_id_after_auth(&self) -> bool {
