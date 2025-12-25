@@ -10,6 +10,7 @@ globalThis.HTMLElement = window.HTMLElement as any;
 globalThis.Event = window.Event as any;
 globalThis.CustomEvent = window.CustomEvent as any;
 globalThis.MouseEvent = window.MouseEvent as any;
+globalThis.getComputedStyle = window.getComputedStyle.bind(window) as any;
 globalThis.requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(cb, 0) as any;
 globalThis.cancelAnimationFrame = (id: number) => clearTimeout(id as any);
 
@@ -61,6 +62,9 @@ mock.module("@tanstack/react-router", () => ({
   createFileRoute: () => (params: any) => ({
     ...params,
     useSearch: mock(() => ({})),
+    useNavigate: mock(() => mockNavigate),
+    useParams: mock(() => ({})),
+    useLoaderData: mock(() => ({})),
   }),
   Link: ({ children, to, params, search, onClick }: any) => {
     return React.createElement("a", { 

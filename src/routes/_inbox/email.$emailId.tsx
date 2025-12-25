@@ -37,7 +37,7 @@ export const Route = createFileRoute("/_inbox/email/$emailId")({
   component: ThreadView,
 });
 
-function ThreadView() {
+export function ThreadView() {
   const { email, threadEmails } = Route.useLoaderData();
   const setComposer = useEmailStore(state => state.setComposer);
 
@@ -139,13 +139,16 @@ function ThreadMessage({ email, isLast, defaultExpanded }: { email: Email, isLas
   return (
     <div className={cn(
         "bg-background rounded-xl shadow-sm border overflow-hidden transition-all",
-        !isExpanded && "hover:bg-muted/50 cursor-pointer"
-    )} onClick={() => !isExpanded && setIsExpanded(true)}>
+        isExpanded && "email-paper"
+    )}>
       {/* Header */}
-      <div className={cn(
-          "p-4 flex items-center gap-4 select-none",
-          isExpanded && "border-b bg-muted/20"
-      )}>
+      <div 
+        className={cn(
+            "p-4 flex items-center gap-4 select-none cursor-pointer transition-colors",
+            isExpanded ? "border-b bg-muted" : "hover:bg-muted/50"
+        )}
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
         <SenderAvatar 
           address={email.sender_address}
           name={email.sender_name}
@@ -206,14 +209,14 @@ function ThreadMessage({ email, isLast, defaultExpanded }: { email: Email, isLas
 
 function EmailBody({ content, onContentClick }: { content: EmailContent | null, onContentClick: (e: React.MouseEvent) => void }) {
     const sanitizedHtml = useMemo(() => {
-        if (!content.body_html) return null;
+        if (!content?.body_html) return null;
         return DOMPurify.sanitize(content.body_html, {
             USE_PROFILES: { html: true },
             ADD_TAGS: ["style"],
             FORBID_TAGS: ["script", "iframe", "object", "embed"],
             FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover"],
         });
-    }, [content.body_html]);
+    }, [content?.body_html]);
 
     // Simple parser for text content to handle quotes
     const renderTextContent = (text: string) => {
@@ -243,6 +246,8 @@ function EmailBody({ content, onContentClick }: { content: EmailContent | null, 
             </div>
         );
     };
+
+    if (!content) return null;
 
     return (
         <div className="prose-email max-w-none" onClick={onContentClick}>

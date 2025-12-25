@@ -33,6 +33,12 @@ describe("AppSidebar", () => {
     mockInvoke.mockImplementation((command, _args) => {
       if (command === "get_accounts") return Promise.resolve(mockAccounts);
       if (command === "get_folders") return Promise.resolve(mockFolders);
+      if (command === "get_unified_counts") return Promise.resolve({
+          primary_count: 5,
+          others: 0,
+          spam: 0,
+          drafts: 0,
+      });
       return Promise.resolve();
     });
   });
@@ -71,8 +77,8 @@ describe("AppSidebar", () => {
     );
 
     const screen = within(document.body);
-    expect(screen.getByText("Unified Inbox")).toBeInTheDocument();
-    expect(screen.getByText("Unread")).toBeInTheDocument();
+    expect(screen.getByText("Inbox")).toBeInTheDocument();
     expect(screen.getByText("Flagged")).toBeInTheDocument();
+    expect(screen.getByText("Drafts")).toBeInTheDocument();
   });
 });

@@ -84,6 +84,8 @@ export function EmailListItem({
         <div 
           onClick={handleAvatarClick}
           className="relative cursor-pointer"
+          role="checkbox"
+          aria-checked={isSelected}
         >
           <SenderAvatar 
             address={email.sender_address}

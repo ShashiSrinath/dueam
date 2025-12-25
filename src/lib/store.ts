@@ -208,6 +208,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   fetchUnifiedCounts: async () => {
     try {
       const counts = await invoke<any>("get_unified_counts");
+      if (!counts) return;
       set({
         unifiedCounts: {
           primary: counts.primary_count || 0,
