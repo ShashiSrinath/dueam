@@ -25,8 +25,20 @@ import { invoke } from "@tauri-apps/api/core";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 
 export const Route = createFileRoute("/settings")({
   validateSearch: (search: Record<string, unknown>) => {
@@ -37,30 +49,62 @@ export const Route = createFileRoute("/settings")({
   component: SettingsPage,
 });
 
-function SettingsPage() {
-  const { tab } = useSearch({ from: "/settings" });
-  const navigate = useNavigate();
-  const { accounts, fetchAccountsAndFolders } = useEmailStore();
+const aiSettingsSchema = z.object({
+  aiEnabled: z.boolean(),
+  aiBaseUrl: z.string(),
+  aiApiKey: z.string(),
+  aiModel: z.string(),
+});
+
+type AiSettingsValues = z.infer<typeof aiSettingsSchema>;
+
+function AiSettingsTab() {
   const { settings, updateSetting } = useSettingsStore();
   const [showApiKey, setShowApiKey] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [availableModels, setAvailableModels] = useState<{ id: string }[]>([]);
 
-  const handleRemoveAccount = async (index: number) => {
-    try {
-      await invoke("remove_account", { index });
-      await fetchAccountsAndFolders();
-    } catch (error) {
-      console.error("Failed to remove account:", error);
+  const form = useForm<AiSettingsValues>({
+    resolver: zodResolver(aiSettingsSchema),
+    defaultValues: {
+      aiEnabled: settings.aiEnabled,
+      aiBaseUrl: settings.aiBaseUrl,
+      aiApiKey: settings.aiApiKey,
+      aiModel: settings.aiModel,
+    },
+  });
+
+  // Update form when settings change (e.g. after initial fetch)
+  useEffect(() => {
+    form.reset({
+      aiEnabled: settings.aiEnabled,
+      aiBaseUrl: settings.aiBaseUrl,
+      aiApiKey: settings.aiApiKey,
+      aiModel: settings.aiModel,
+    });
+  }, [settings.aiEnabled, settings.aiBaseUrl, settings.aiApiKey, settings.aiModel, form]);
+
+  const onFieldBlur = async (name: keyof AiSettingsValues) => {
+    const value = form.getValues(name);
+    if (value !== settings[name]) {
+      await updateSetting(name, value);
     }
   };
 
   const handleFetchModels = async () => {
+    const baseUrl = form.getValues("aiBaseUrl");
+    const apiKey = form.getValues("aiApiKey");
+
+    if (!baseUrl) {
+      toast.error("Please enter a Base URL first");
+      return;
+    }
+
     setFetchingModels(true);
     try {
       const models = await invoke<{ id: string }[]>("get_available_models", {
-        baseUrl: settings.aiBaseUrl,
-        apiKey: settings.aiApiKey,
+        baseUrl,
+        apiKey,
       });
       setAvailableModels(models);
       toast.success(`Successfully fetched ${models.length} models`);
@@ -69,6 +113,197 @@ function SettingsPage() {
       toast.error(typeof error === "string" ? error : "Failed to fetch models");
     } finally {
       setFetchingModels(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <Form {...form}>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <CardTitle className="flex items-center gap-2">
+                  <Bot className="h-5 w-5" /> AI Configuration
+                </CardTitle>
+                <CardDescription>
+                  Configure your AI provider and model for email enrichment and smart features.
+                </CardDescription>
+              </div>
+              <FormField
+                control={form.control}
+                name="aiEnabled"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={(checked) => {
+                          field.onChange(checked);
+                          updateSetting("aiEnabled", checked);
+                        }}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-4">
+              <FormField
+                control={form.control}
+                name="aiBaseUrl"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Base URL</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        placeholder="https://api.openai.com/v1"
+                        onBlur={() => onFieldBlur("aiBaseUrl")}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      The API endpoint for your AI provider (e.g., OpenAI, Anthropic, or local Ollama).
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="aiApiKey"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>API Key</FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <Input
+                          {...field}
+                          type={showApiKey ? "text" : "password"}
+                          placeholder="sk-..."
+                          onBlur={() => onFieldBlur("aiApiKey")}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowApiKey(!showApiKey)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        >
+                          {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <Separator />
+
+              <FormField
+                control={form.control}
+                name="aiModel"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Model</FormLabel>
+                    <div className="flex gap-2">
+                      <FormControl>
+                        <Select
+                          value={field.value}
+                          onValueChange={(v) => {
+                            field.onChange(v);
+                            updateSetting("aiModel", v);
+                          }}
+                          disabled={!form.watch("aiBaseUrl")}
+                        >
+                          <SelectTrigger className="flex-1">
+                            <SelectValue placeholder="Select a model" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableModels.length > 0 ? (
+                              availableModels.map((model) => (
+                                <SelectItem key={model.id} value={model.id}>
+                                  {model.id}
+                                </SelectItem>
+                              ))
+                            ) : field.value ? (
+                              <SelectItem value={field.value}>{field.value}</SelectItem>
+                            ) : (
+                              <div className="p-2 text-sm text-center text-muted-foreground">
+                                No models loaded. Click fetch to see available models.
+                              </div>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </FormControl>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={handleFetchModels}
+                        disabled={fetchingModels || !form.watch("aiBaseUrl")}
+                      >
+                        <RefreshCw className={`h-4 w-4 ${fetchingModels ? "animate-spin" : ""}`} />
+                      </Button>
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </Form>
+
+      {form.watch("aiEnabled") && (
+        <Card>
+          <CardHeader>
+            <CardTitle>AI Features</CardTitle>
+            <CardDescription>
+              Select which AI-powered features you want to enable.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Email Summarization</Label>
+                <p className="text-sm text-muted-foreground">
+                  Automatically summarize long email threads.
+                </p>
+              </div>
+              <Switch defaultChecked disabled />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Smart Replies</Label>
+                <p className="text-sm text-muted-foreground">
+                  Generate context-aware reply suggestions.
+                </p>
+              </div>
+              <Switch disabled />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function SettingsPage() {
+  const { tab } = useSearch({ from: "/settings" });
+  const navigate = useNavigate();
+  const { accounts, fetchAccountsAndFolders } = useEmailStore();
+  const { settings, updateSetting } = useSettingsStore();
+
+  const handleRemoveAccount = async (index: number) => {
+    try {
+      await invoke("remove_account", { index });
+      await fetchAccountsAndFolders();
+    } catch (error) {
+      console.error("Failed to remove account:", error);
     }
   };
 
@@ -318,134 +553,7 @@ function SettingsPage() {
           </TabsContent>
 
           <TabsContent value="ai" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <CardTitle className="flex items-center gap-2">
-                      <Bot className="h-5 w-5" /> AI Configuration
-                    </CardTitle>
-                    <CardDescription>
-                      Configure your AI provider and model for email enrichment and smart features.
-                    </CardDescription>
-                  </div>
-                  <Switch
-                    checked={settings.aiEnabled}
-                    onCheckedChange={(v) => updateSetting("aiEnabled", v)}
-                  />
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="base-url">Base URL</Label>
-                    <Input
-                      id="base-url"
-                      placeholder="https://api.openai.com/v1"
-                      value={settings.aiBaseUrl}
-                      onChange={(e) => updateSetting("aiBaseUrl", e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      The API endpoint for your AI provider (e.g., OpenAI, Anthropic, or local Ollama).
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="api-key">API Key</Label>
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <Input
-                          id="api-key"
-                          type={showApiKey ? "text" : "password"}
-                          placeholder="sk-..."
-                          value={settings.aiApiKey}
-                          onChange={(e) => updateSetting("aiApiKey", e.target.value)}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowApiKey(!showApiKey)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                        >
-                          {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div className="space-y-2">
-                    <Label>Model</Label>
-                    <div className="flex gap-2">
-                      <Select
-                        value={settings.aiModel}
-                        onValueChange={(v) => updateSetting("aiModel", v)}
-                        disabled={!settings.aiBaseUrl}
-                      >
-                        <SelectTrigger className="flex-1">
-                          <SelectValue placeholder="Select a model" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableModels.length > 0 ? (
-                            availableModels.map((model) => (
-                              <SelectItem key={model.id} value={model.id}>
-                                {model.id}
-                              </SelectItem>
-                            ))
-                          ) : settings.aiModel ? (
-                            <SelectItem value={settings.aiModel}>{settings.aiModel}</SelectItem>
-                          ) : (
-                            <div className="p-2 text-sm text-center text-muted-foreground">
-                              No models loaded. Click fetch to see available models.
-                            </div>
-                          )}
-                        </SelectContent>
-                      </Select>
-                      <Button 
-                        variant="outline" 
-                        size="icon" 
-                        onClick={handleFetchModels}
-                        disabled={fetchingModels || !settings.aiBaseUrl}
-                      >
-                        <RefreshCw className={`h-4 w-4 ${fetchingModels ? "animate-spin" : ""}`} />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {settings.aiEnabled && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>AI Features</CardTitle>
-                  <CardDescription>
-                    Select which AI-powered features you want to enable.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Email Summarization</Label>
-                      <p className="text-sm text-muted-foreground">
-                        Automatically summarize long email threads.
-                      </p>
-                    </div>
-                    <Switch defaultChecked disabled />
-                  </div>
-                  <Separator />
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Smart Replies</Label>
-                      <p className="text-sm text-muted-foreground">
-                        Generate context-aware reply suggestions.
-                      </p>
-                    </div>
-                    <Switch disabled />
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+            <AiSettingsTab />
           </TabsContent>
         </Tabs>
       </div>
