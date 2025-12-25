@@ -59,7 +59,13 @@ const aiSettingsSchema = z.object({
 type AiSettingsValues = z.infer<typeof aiSettingsSchema>;
 
 function AiSettingsTab() {
-  const { settings, updateSetting } = useSettingsStore();
+  const settings = useSettingsStore((state) => ({
+    aiEnabled: state.settings.aiEnabled,
+    aiBaseUrl: state.settings.aiBaseUrl,
+    aiApiKey: state.settings.aiApiKey,
+    aiModel: state.settings.aiModel,
+  }));
+  const updateSetting = useSettingsStore((state) => state.updateSetting);
   const [showApiKey, setShowApiKey] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [availableModels, setAvailableModels] = useState<{ id: string }[]>([]);
@@ -76,12 +82,21 @@ function AiSettingsTab() {
 
   // Update form when settings change (e.g. after initial fetch)
   useEffect(() => {
-    form.reset({
-      aiEnabled: settings.aiEnabled,
-      aiBaseUrl: settings.aiBaseUrl,
-      aiApiKey: settings.aiApiKey,
-      aiModel: settings.aiModel,
-    });
+    const currentValues = form.getValues();
+    const hasChanged = 
+      settings.aiEnabled !== currentValues.aiEnabled ||
+      settings.aiBaseUrl !== currentValues.aiBaseUrl ||
+      settings.aiApiKey !== currentValues.aiApiKey ||
+      settings.aiModel !== currentValues.aiModel;
+
+    if (hasChanged && !form.formState.isDirty) {
+      form.reset({
+        aiEnabled: settings.aiEnabled,
+        aiBaseUrl: settings.aiBaseUrl,
+        aiApiKey: settings.aiApiKey,
+        aiModel: settings.aiModel,
+      });
+    }
   }, [settings.aiEnabled, settings.aiBaseUrl, settings.aiApiKey, settings.aiModel, form]);
 
   const onFieldBlur = async (name: keyof AiSettingsValues) => {
@@ -296,7 +311,8 @@ function SettingsPage() {
   const { tab } = useSearch({ from: "/settings" });
   const navigate = useNavigate();
   const { accounts, fetchAccountsAndFolders } = useEmailStore();
-  const { settings, updateSetting } = useSettingsStore();
+  const settings = useSettingsStore((state) => state.settings);
+  const updateSetting = useSettingsStore((state) => state.updateSetting);
 
   const handleRemoveAccount = async (index: number) => {
     try {
