@@ -192,7 +192,7 @@ impl OAuth2Config {
 
     /// Runs the refresh access token OAuth 2.0 flow by exchanging a
     /// refresh token with a new pair of access/refresh token.
-    pub async fn refresh_access_token(&self) -> Result<String> {
+    pub async fn refresh_access_token(&self) -> Result<(String, Option<String>)> {
         let redirect_scheme = match self.redirect_scheme.as_ref() {
             Some(scheme) => scheme.clone(),
             None => "http".into(),
@@ -253,7 +253,7 @@ impl OAuth2Config {
                 .map_err(Error::SetRefreshTokenOauthError)?;
         }
 
-        Ok(access_token)
+        Ok((access_token, refresh_token))
     }
 
     /// Returns the access token if existing, otherwise returns an

@@ -1233,28 +1233,10 @@ impl ImapClientBuilder {
                                 .map_err(Error::RefreshAccessTokenError)?,
                         };
 
-                        let auth = client
+                        client
                             .authenticate_xoauth2(self.config.login.as_str(), access_token.as_str())
-                            .await;
-
-                        if auth.is_err() {
-                            warn!("authentication failed, refreshing access token and retrying…");
-
-                            let access_token = oauth2
-                                .refresh_access_token()
-                                .await
-                                .map_err(Error::RefreshAccessTokenError)?;
-
-                            client
-                                .authenticate_xoauth2(
-                                    self.config.login.as_str(),
-                                    access_token.as_str(),
-                                )
-                                .await
-                                .map_err(Error::AuthenticateXOauth2Error)?;
-
-                            self.credentials = Some(access_token);
-                        }
+                            .await
+                            .map_err(Error::AuthenticateXOauth2Error)?;
                     }
                     OAuth2Method::OAuthBearer => {
                         if !client
@@ -1275,35 +1257,15 @@ impl ImapClientBuilder {
                                 .map_err(Error::RefreshAccessTokenError)?,
                         };
 
-                        let auth = client
+                        client
                             .authenticate_oauthbearer(
                                 self.config.login.as_str(),
                                 self.config.host.as_str(),
                                 self.config.port,
                                 access_token.as_str(),
                             )
-                            .await;
-
-                        if auth.is_err() {
-                            warn!("authentication failed, refreshing access token and retrying");
-
-                            let access_token = oauth2
-                                .refresh_access_token()
-                                .await
-                                .map_err(Error::RefreshAccessTokenError)?;
-
-                            client
-                                .authenticate_oauthbearer(
-                                    self.config.login.as_str(),
-                                    self.config.host.as_str(),
-                                    self.config.port,
-                                    access_token.as_str(),
-                                )
-                                .await
-                                .map_err(Error::AuthenticateOAuthBearerError)?;
-
-                            self.credentials = Some(access_token);
-                        }
+                            .await
+                            .map_err(Error::AuthenticateOAuthBearerError)?;
                     }
                 }
             }

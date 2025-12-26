@@ -1,4 +1,5 @@
 use tauri::{Manager, Emitter};
+use log::info;
 use sqlx::SqlitePool;
 use serde::{Deserialize, Serialize};
 use crate::email_backend::accounts::manager::AccountManager;
@@ -942,8 +943,43 @@ pub async fn send_email<R: tauri::Runtime>(
         SmtpContextBuilder::new(account_config, smtp_config),
     );
 
-    let backend = backend_builder.build().await.map_err(|e| e.to_string())?;
-    backend.send_message(message.as_bytes()).await.map_err(|e| e.to_string())?;
+    let backend = match backend_builder.build().await {
+        Ok(b) => b,
+        Err(e) => {
+            let err_str = e.to_string();
+            if err_str.contains("auth") || err_str.contains("Unauthorized") || err_str.contains("token") || err_str.contains("credentials") {
+                info!("Refreshing token for account {} due to build error: {}", account.email(), err_str);
+                manager.refresh_access_token(account.email()).await?;
+                let account = manager.get_account_by_id(account_id).await?;
+                let (account_config, _, smtp_config) = account.get_configs()?;
+                let backend_builder = BackendBuilder::new(
+                    account_config.clone(),
+                    SmtpContextBuilder::new(account_config, smtp_config),
+                );
+                backend_builder.build().await.map_err(|e| e.to_string())?
+            } else {
+                return Err(err_str);
+            }
+        }
+    };
+
+    if let Err(e) = backend.send_message(message.as_bytes()).await {
+        let err_str = e.to_string();
+        if err_str.contains("auth") || err_str.contains("Unauthorized") || err_str.contains("token") || err_str.contains("credentials") {
+            info!("Refreshing token for account {} due to send error: {}", account.email(), err_str);
+            manager.refresh_access_token(account.email()).await?;
+            let account = manager.get_account_by_id(account_id).await?;
+            let (account_config, _, smtp_config) = account.get_configs()?;
+            let backend_builder = BackendBuilder::new(
+                account_config.clone(),
+                SmtpContextBuilder::new(account_config, smtp_config),
+            );
+            let backend = backend_builder.build().await.map_err(|e| e.to_string())?;
+            backend.send_message(message.as_bytes()).await.map_err(|e| e.to_string())?;
+        } else {
+            return Err(err_str);
+        }
+    }
 
     // Append to Sent Folder
     let pool = app_handle.state::<SqlitePool>();

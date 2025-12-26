@@ -263,38 +263,14 @@ pub async fn build_client(
             Ok((client_builder, client))
         }
         #[cfg(feature = "oauth2")]
-        (SmtpAuthConfig::OAuth2(oauth2_config), false) => {
-            match Ok(build_tcp_client(&client_builder).await?) {
-                Ok(client) => Ok((client_builder, client)),
-                Err(Error::ConnectTcpSmtpError(mail_send::Error::AuthenticationFailed(_))) => {
-                    warn!("authentication failed, refreshing access token and retrying…");
-                    oauth2_config
-                        .refresh_access_token()
-                        .await
-                        .map_err(|_| Error::RefreshingAccessTokenFailed)?;
-                    client_builder = client_builder.credentials(smtp_config.credentials().await?);
-                    let client = build_tcp_client(&client_builder).await?;
-                    Ok((client_builder, client))
-                }
-                Err(err) => Err(err),
-            }
+        (SmtpAuthConfig::OAuth2(_), false) => {
+            let client = build_tcp_client(&client_builder).await?;
+            Ok((client_builder, client))
         }
         #[cfg(feature = "oauth2")]
-        (SmtpAuthConfig::OAuth2(oauth2_config), true) => {
-            match Ok(build_tls_client(&client_builder).await?) {
-                Ok(client) => Ok((client_builder, client)),
-                Err(Error::ConnectTlsSmtpError(mail_send::Error::AuthenticationFailed(_))) => {
-                    warn!("authentication failed, refreshing access token and retrying…");
-                    oauth2_config
-                        .refresh_access_token()
-                        .await
-                        .map_err(|_| Error::RefreshingAccessTokenFailed)?;
-                    client_builder = client_builder.credentials(smtp_config.credentials().await?);
-                    let client = build_tls_client(&client_builder).await?;
-                    Ok((client_builder, client))
-                }
-                Err(err) => Err(err),
-            }
+        (SmtpAuthConfig::OAuth2(_), true) => {
+            let client = build_tls_client(&client_builder).await?;
+            Ok((client_builder, client))
         }
     }
 }

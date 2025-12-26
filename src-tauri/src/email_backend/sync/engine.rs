@@ -79,12 +79,31 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         let (account_config, imap_config, _) = account.get_configs()?;
 
         // Use pool size 2 to allow IDLE and one concurrent request
-        let ctx_builder = ImapContextBuilder::new(account_config, imap_config)
+        let ctx_builder = ImapContextBuilder::new(account_config.clone(), imap_config)
             .with_pool_size(2);
 
-        let context: ImapContext = BackendContextBuilder::build(ctx_builder)
-            .await
-            .map_err(|e| e.to_string())?;
+        let context: ImapContext = match BackendContextBuilder::build(ctx_builder).await {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("auth") || err_str.contains("Unauthorized") || err_str.contains("token") || err_str.contains("credentials") {
+                    info!("Refreshing token for account {} due to context build error: {}", account.email(), err_str);
+                    manager.refresh_access_token(account.email()).await?;
+                    
+                    // Reload account and configs
+                    let account = manager.get_account_by_id(account_id).await?;
+                    let (account_config, imap_config, _) = account.get_configs()?;
+                    let ctx_builder = ImapContextBuilder::new(account_config, imap_config)
+                        .with_pool_size(2);
+                    
+                    BackendContextBuilder::build(ctx_builder)
+                        .await
+                        .map_err(|e| e.to_string())?
+                } else {
+                    return Err(err_str);
+                }
+            }
+        };
 
         contexts.insert(account_id, context.clone());
         Ok(context)

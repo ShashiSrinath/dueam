@@ -202,11 +202,12 @@ impl<R: tauri::Runtime> AccountManager<R> {
                     ..Default::default()
                 };
 
-                let access_token = oauth2_config.refresh_access_token().await.map_err(|e| e.to_string())?;
+                let (access_token, new_refresh_token) = oauth2_config.refresh_access_token().await.map_err(|e| e.to_string())?;
                 
                 google.access_token = Some(access_token.clone());
-                // Note: email-lib's refresh_access_token might update the internal refresh_token if it rotates
-                // but it doesn't return it. For Google, rotation is rare.
+                if let Some(new_refresh) = new_refresh_token {
+                    google.refresh_token = Some(new_refresh);
+                }
                 
                 let access_token_val = access_token;
                 
