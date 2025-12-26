@@ -5,11 +5,9 @@ use log::{info, error};
 use sqlx::SqlitePool;
 use tokio::time::sleep;
 
-use crate::email_backend::accounts::manager::AccountManager;
-use email::backend::BackendBuilder;
-use email::imap::ImapContextBuilder;
-use email::message::get::GetMessages;
+use crate::email_backend::sync::SyncEngine;
 use email::envelope::Id;
+use email::message::get::GetMessages;
 
 pub struct SyncWorker<R: tauri::Runtime> {
     app_handle: tauri::AppHandle<R>,
@@ -83,26 +81,14 @@ impl<R: tauri::Runtime> SyncWorker<R> {
 
         info!("Background indexing {} emails...", pending_emails.len());
 
-        let manager = AccountManager::new(app_handle).await?;
-        
         let mut by_account: HashMap<i64, Vec<(i64, String, String)>> = HashMap::new();
         for (id, account_id, remote_id, folder_path) in pending_emails {
             by_account.entry(account_id).or_default().push((id, remote_id, folder_path));
         }
 
         for (account_id, emails) in by_account {
-            let account = match manager.get_account_by_id(account_id).await {
-                Ok(a) => a,
-                Err(_) => continue,
-            };
-
-            let (account_config, imap_config, _) = account.get_configs()?;
-            let backend_builder = BackendBuilder::new(
-                account_config.clone(),
-                ImapContextBuilder::new(account_config, imap_config),
-            );
-
-            let backend = match backend_builder.build().await {
+            let engine = app_handle.state::<SyncEngine<R>>();
+            let backend = match engine.get_backend(account_id).await {
                 Ok(b) => b,
                 Err(e) => {
                     error!("Failed to build backend for account {}: {}", account_id, e);

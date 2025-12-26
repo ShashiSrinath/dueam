@@ -8,8 +8,7 @@ use tokio::time::sleep;
 use tokio::sync::{oneshot, Mutex};
 use log::{info, error};
 use email::imap::{ImapContext, ImapContextBuilder, ImapClient};
-use email::backend::context::BackendContextBuilder;
-use email::backend::BackendBuilder;
+use email::backend::{Backend, context::BackendContextBuilder};
 use email::folder::list::ListFolders;
 use email::envelope::Envelopes;
 use imap_client::tasks::tasks::select::SelectDataUnvalidated;
@@ -18,6 +17,7 @@ use sqlx::SqlitePool;
 pub struct SyncEngine<R: tauri::Runtime = tauri::Wry> {
     app_handle: tauri::AppHandle<R>,
     idle_senders: Arc<Mutex<HashMap<i64, oneshot::Sender<()>>>>,
+    contexts: Arc<Mutex<HashMap<i64, ImapContext>>>,
 }
 
 impl<R: tauri::Runtime> Clone for SyncEngine<R> {
@@ -25,6 +25,7 @@ impl<R: tauri::Runtime> Clone for SyncEngine<R> {
         Self {
             app_handle: self.app_handle.clone(),
             idle_senders: self.idle_senders.clone(),
+            contexts: self.contexts.clone(),
         }
     }
 }
@@ -35,10 +36,10 @@ use tauri_plugin_notification::NotificationExt;
 
 fn normalize_subject(subject: &str) -> String {
     let mut s = subject.trim().to_lowercase();
-    
+
     loop {
         let prev = s.clone();
-        
+
         // Strip common email prefixes
         if s.starts_with("re:") {
             s = s[3..].trim().to_string();
@@ -46,38 +47,10 @@ fn normalize_subject(subject: &str) -> String {
             s = s[4..].trim().to_string();
         } else if s.starts_with("fw:") {
             s = s[3..].trim().to_string();
-        } 
-        // Strip common notification prefixes
-        else if s.starts_with("status changed:") {
-            s = s[15..].trim().to_string();
-        } else if s.starts_with("new comment:") {
-            s = s[12..].trim().to_string();
-        } else if s.starts_with("new task:") {
-            s = s[9..].trim().to_string();
-        } else if s.starts_with("task deleted:") {
-            s = s[13..].trim().to_string();
-        } else if s.starts_with("overdue:") {
-            s = s[8..].trim().to_string();
-        } else if s.starts_with("reminder:") {
-            s = s[9..].trim().to_string();
-        }
-        // Strip bracketed prefixes like [Project-Name] or [Overdue]
-        else if s.starts_with("[") {
-            if let Some(end_bracket) = s.find(']') {
-                let prefix = &s[1..end_bracket];
-                // Only strip if it's a short prefix or common one
-                if prefix.len() < 20 || prefix == "overdue" || prefix == "clickup" {
-                    s = s[end_bracket + 1..].trim().to_string();
-                } else {
-                    break;
-                }
-            } else {
-                break;
-            }
         } else {
             break;
         }
-        
+
         if s == prev {
             break;
         }
@@ -87,16 +60,73 @@ fn normalize_subject(subject: &str) -> String {
 
 impl<R: tauri::Runtime> SyncEngine<R> {
     pub fn new(app_handle: tauri::AppHandle<R>) -> Self {
-        Self { 
+        Self {
             app_handle,
             idle_senders: Arc::new(Mutex::new(HashMap::new())),
+            contexts: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    pub async fn get_context(&self, account_id: i64) -> Result<ImapContext, String> {
+        let mut contexts = self.contexts.lock().await;
+        if let Some(ctx) = contexts.get(&account_id) {
+            return Ok(ctx.clone());
+        }
+
+        let manager = AccountManager::new(&self.app_handle).await?;
+        let account = manager.get_account_by_id(account_id).await?;
+        let (account_config, imap_config, _) = account.get_configs()?;
+
+        // Use pool size 2 to allow IDLE and one concurrent request
+        let ctx_builder = ImapContextBuilder::new(account_config, imap_config)
+            .with_pool_size(2);
+
+        let context: ImapContext = BackendContextBuilder::build(ctx_builder)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        contexts.insert(account_id, context.clone());
+        Ok(context)
+    }
+
+    pub async fn get_backend(&self, account_id: i64) -> Result<Backend<ImapContext>, String> {
+        let context = self.get_context(account_id).await?;
+        let manager = AccountManager::new(&self.app_handle).await?;
+        let account = manager.get_account_by_id(account_id).await?;
+        let (account_config, imap_config, _) = account.get_configs()?;
+
+        let ctx_builder = ImapContextBuilder::new(account_config.clone(), imap_config);
+
+        Ok(Backend {
+            account_config,
+            context: Arc::new(context),
+            add_folder: ctx_builder.add_folder(),
+            list_folders: ctx_builder.list_folders(),
+            expunge_folder: ctx_builder.expunge_folder(),
+            purge_folder: ctx_builder.purge_folder(),
+            delete_folder: ctx_builder.delete_folder(),
+            get_envelope: ctx_builder.get_envelope(),
+            list_envelopes: ctx_builder.list_envelopes(),
+            thread_envelopes: ctx_builder.thread_envelopes(),
+            watch_envelopes: ctx_builder.watch_envelopes(),
+            add_flags: ctx_builder.add_flags(),
+            set_flags: ctx_builder.set_flags(),
+            remove_flags: ctx_builder.remove_flags(),
+            add_message: ctx_builder.add_message(),
+            send_message: None,
+            peek_messages: ctx_builder.peek_messages(),
+            get_messages: ctx_builder.get_messages(),
+            copy_messages: ctx_builder.copy_messages(),
+            move_messages: ctx_builder.move_messages(),
+            delete_messages: ctx_builder.delete_messages(),
+            remove_messages: ctx_builder.remove_messages(),
+        })
     }
 
     pub async fn start(&self) {
         info!("Starting Sync Engine...");
         let app_handle = self.app_handle.clone();
-        
+
         // Initial sync of all accounts
         if let Err(e) = Self::sync_all_accounts(&app_handle).await {
             error!("Initial sync failed: {}", e);
@@ -117,10 +147,9 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         if let Ok(manager) = AccountManager::new(&app_handle).await {
             if let Ok(registry) = manager.load().await {
                 for account in registry.accounts {
-                    let app_handle = app_handle.clone();
-                    let idle_senders = self.idle_senders.clone();
+                    let engine = self.clone();
                     tauri::async_runtime::spawn(async move {
-                        Self::start_idle_for_account(app_handle, account, idle_senders).await;
+                        engine.start_idle_for_account(account).await;
                     });
                 }
             }
@@ -128,17 +157,16 @@ impl<R: tauri::Runtime> SyncEngine<R> {
     }
 
     pub fn trigger_sync_for_account(&self, account: Account) {
-        let app_handle = self.app_handle.clone();
-        let idle_senders = self.idle_senders.clone();
-        
+        let engine = self.clone();
+
         tauri::async_runtime::spawn(async move {
             // 1. Initial sync
-            if let Err(e) = Self::sync_account(&app_handle, &account).await {
+            if let Err(e) = Self::sync_account(&engine.app_handle, &account).await {
                 error!("Initial sync failed for {}: {}", account.email(), e);
             }
-            
+
             // 2. Start IDLE
-            Self::start_idle_for_account(app_handle, account, idle_senders).await;
+            engine.start_idle_for_account(account).await;
         });
     }
 
@@ -152,19 +180,12 @@ impl<R: tauri::Runtime> SyncEngine<R> {
 
         let (folder_path, folder_role) = folder_info;
 
-        let manager = AccountManager::new(app_handle).await?;
-        let account = manager.get_account_by_id(account_id).await?;
-        let (account_config, imap_config, _) = account.get_configs()?;
+        let engine = app_handle.state::<SyncEngine<R>>();
+        let context = engine.get_context(account_id).await?;
+        let account = AccountManager::new(app_handle).await?.get_account_by_id(account_id).await?;
 
-        let backend_builder = BackendBuilder::new(
-            account_config.clone(),
-            ImapContextBuilder::new(account_config, imap_config),
-        );
-
-        let backend = backend_builder.build().await.map_err(|e| e.to_string())?;
-        let context = (*backend.context).clone();
         let mut client = context.client().await;
-        
+
         let folder_data = match client.examine_mailbox(&folder_path).await {
             Ok(data) => data,
             Err(e) => {
@@ -174,11 +195,11 @@ impl<R: tauri::Runtime> SyncEngine<R> {
                 return Err(format!("cannot examine IMAP mailbox {}: {}", folder_path, e));
             }
         };
-        
+
         Self::sync_folder(app_handle, &mut *client, &account, &folder_path, folder_role, &folder_data).await?;
-        
+
         let _ = app_handle.emit("emails-updated", account_id);
-        
+
         Ok(())
     }
 
@@ -200,11 +221,11 @@ impl<R: tauri::Runtime> SyncEngine<R> {
             let date_str = env.date.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
             let norm_subject = normalize_subject(&env.subject);
             let recipient_to = Some(env.to.addr.clone());
-            
+
             let res = sqlx::query(
                 "INSERT INTO emails (account_id, folder_id, remote_id, message_id, thread_id, in_reply_to, references_header, subject, normalized_subject, sender_name, sender_address, recipient_to, date, flags)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                 ON CONFLICT(folder_id, remote_id) DO UPDATE SET 
+                 ON CONFLICT(folder_id, remote_id) DO UPDATE SET
                     flags=excluded.flags,
                     recipient_to=COALESCE(emails.recipient_to, excluded.recipient_to)"
             )
@@ -244,13 +265,13 @@ impl<R: tauri::Runtime> SyncEngine<R> {
                 }
             }
         }
-        
+
         info!("Saved {}/{} envelopes for folder {}", success_count, total, folder_id);
-        
+
         // Update unread count for the folder based on actual emails in DB
         let _ = sqlx::query(
             "UPDATE folders SET unread_count = (
-                SELECT COUNT(*) FROM emails 
+                SELECT COUNT(*) FROM emails
                 WHERE folder_id = ? AND (flags NOT LIKE '%seen%' AND flags NOT LIKE '%\"seen\"%')
             ) WHERE id = ?"
         )
@@ -262,11 +283,11 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         if failure_count > 0 && success_count == 0 {
             return Err(format!("Failed to save any emails in batch. Last error: {}", last_error.unwrap_or_default()));
         }
-        
+
         Ok(())
     }
 
-    pub async fn start_idle_for_account(app_handle: tauri::AppHandle<R>, account: Account, idle_senders: Arc<Mutex<HashMap<i64, oneshot::Sender<()>>>>) {
+    pub async fn start_idle_for_account(&self, account: Account) {
         let account_id = match account.id() {
             Some(id) => id,
             None => return,
@@ -275,7 +296,7 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         info!("Starting IDLE for account: {}", account.email());
 
         let (tx, mut rx) = oneshot::channel();
-        idle_senders.lock().await.insert(account_id, tx);
+        self.idle_senders.lock().await.insert(account_id, tx);
 
         loop {
             let res = tokio::select! {
@@ -283,7 +304,7 @@ impl<R: tauri::Runtime> SyncEngine<R> {
                     info!("Stopping IDLE for account: {}", account.email());
                     break;
                 }
-                res = Self::run_idle_loop(&app_handle, &account) => res,
+                res = self.run_idle_loop(&account) => res,
             };
 
             if let Err(e) = res {
@@ -293,30 +314,25 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         }
     }
 
-    async fn run_idle_loop(app_handle: &tauri::AppHandle<R>, account: &Account) -> Result<(), String> {
-        let (account_config, imap_config, _) = account.get_configs()?;
-        let ctx_builder = ImapContextBuilder::new(account_config.clone(), imap_config);
-
-        let context: ImapContext = BackendContextBuilder::build(ctx_builder)
-            .await
-            .map_err(|e| e.to_string())?;
+    async fn run_idle_loop(&self, account: &Account) -> Result<(), String> {
+        let account_id = account.id().ok_or("Account ID missing")?;
+        let context = self.get_context(account_id).await?;
 
         let mut client = context.client().await;
-        
+
         loop {
             info!("IDLE waiting for updates for {}...", account.email());
-            
+
             // Select INBOX and get current state
             let folder_data = client.select_mailbox("INBOX").await.map_err(|e| e.to_string())?;
-            
+
             // Sync current state
-            Self::sync_folder(app_handle, &mut *client, account, "INBOX", Some("inbox".to_string()), &folder_data).await?;
-            let _ = app_handle.emit("emails-updated", account.id());
+            Self::sync_folder(&self.app_handle, &mut *client, account, "INBOX", Some("inbox".to_string()), &folder_data).await?;
+            let _ = self.app_handle.emit("emails-updated", account.id());
 
             let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
-            
+
             // Start a timer to stop IDLE after 29 minutes (IMAP IDLE should be refreshed every 29 mins)
-            let _app_handle_timer = app_handle.clone();
             let account_email = account.email().to_string();
             tauri::async_runtime::spawn(async move {
                 sleep(Duration::from_secs(29 * 60)).await;
@@ -330,9 +346,9 @@ impl<R: tauri::Runtime> SyncEngine<R> {
     }
 
     async fn sync_folder(
-        app_handle: &tauri::AppHandle<R>, 
-        client: &mut ImapClient, 
-        account: &Account, 
+        app_handle: &tauri::AppHandle<R>,
+        client: &mut ImapClient,
+        account: &Account,
         folder_name: &str,
         role: Option<String>,
         folder_data: &SelectDataUnvalidated
@@ -413,7 +429,7 @@ impl<R: tauri::Runtime> SyncEngine<R> {
             while end > 0 {
                 let start = if end > SYNC_BATCH_SIZE { end - SYNC_BATCH_SIZE + 1 } else { 1 };
                 info!("Fetching envelopes sequence {}:{} for folder {}", start, end, folder_name);
-                
+
                 let start_nz = NonZeroU32::new(start).unwrap_or(NonZeroU32::new(1).unwrap());
                 let end_nz = NonZeroU32::new(end).unwrap_or(NonZeroU32::new(1).unwrap());
                 let seq = (start_nz..=end_nz).into();
@@ -422,33 +438,33 @@ impl<R: tauri::Runtime> SyncEngine<R> {
                     error!("Failed to fetch envelopes batch {}:{} for {}: {}", start, end, folder_name, e);
                     e.to_string()
                 })?;
-                
-                if envelopes.is_empty() { 
+
+                if envelopes.is_empty() {
                     info!("No envelopes returned for sequence {}:{} in folder {}", start, end, folder_name);
-                    break; 
+                    break;
                 }
-                
+
                 info!("Fetched {} envelopes for sequence {}:{} in folder {}", envelopes.len(), start, end, folder_name);
-                
+
                 let is_initial = stored_uid_next == 0;
                 if let Err(e) = Self::save_envelopes(app_handle, account_id, folder_id, envelopes, !is_initial).await {
                     error!("Critical failure saving envelopes for {}: {}. Aborting folder sync.", folder_name, e);
                     return Err(e);
                 }
                 let _ = app_handle.emit("emails-updated", account_id);
-                
+
                 end = if start > 1 { start - 1 } else { 0 };
             }
         } else if (stored_uid_next as u32) < (current_uid_next as u32) {
             info!("Performing incremental sync for folder {} of {} (UID {}:*)", folder_name, account.email(), stored_uid_next);
-            
+
             let start_uid = NonZeroU32::new(stored_uid_next as u32).unwrap_or(NonZeroU32::new(1).unwrap());
             let uids = (start_uid..).into();
             let envelopes = client.fetch_envelopes(uids).await.map_err(|e| {
                 error!("Failed to fetch envelopes incremental UID {}:* for {}: {}", stored_uid_next, folder_name, e);
                 e.to_string()
             })?;
-            
+
             if !envelopes.is_empty() {
                 info!("Fetched {} new envelopes incrementally for folder {}", envelopes.len(), folder_name);
                 if let Err(e) = Self::save_envelopes(app_handle, account_id, folder_id, envelopes, true).await {
@@ -480,13 +496,13 @@ impl<R: tauri::Runtime> SyncEngine<R> {
     pub async fn sync_all_accounts(app_handle: &tauri::AppHandle<R>) -> Result<(), String> {
         let manager = AccountManager::new(app_handle).await?;
         let registry = manager.load().await?;
-        
+
         for account in registry.accounts {
             if let Err(e) = Self::sync_account(app_handle, &account).await {
                 error!("Failed to sync account {}: {}", account.email(), e);
             }
         }
-        
+
         Ok(())
     }
 
@@ -494,7 +510,7 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         // Ensure we have the latest account info with ID from DB
         let manager = AccountManager::new(app_handle).await?;
         let account = manager.get_account_by_id(account.id().ok_or("Account ID missing before sync")?).await?;
-        
+
         match account {
             Account::Google(google) => {
                 Self::sync_google_account(app_handle, &google).await?;
@@ -506,16 +522,12 @@ impl<R: tauri::Runtime> SyncEngine<R> {
     async fn sync_google_account(app_handle: &tauri::AppHandle<R>, google: &crate::email_backend::accounts::google::GoogleAccount) -> Result<(), String> {
         info!("Syncing Google account: {}", google.email);
         let account = Account::Google(google.clone());
-        let (account_config, imap_config, _) = account.get_configs()?;
+        let account_id = account.id().ok_or("Account ID missing")?;
 
-        let backend_builder = BackendBuilder::new(
-            account_config.clone(),
-            ImapContextBuilder::new(account_config, imap_config),
-        );
-
-        let backend = backend_builder.build().await.map_err(|e| e.to_string())?;
+        let engine = app_handle.state::<SyncEngine<R>>();
+        let backend = engine.get_backend(account_id).await?;
         let folders = backend.list_folders().await.map_err(|e| e.to_string())?;
-        
+
         let context = (*backend.context).clone();
 
         for folder in folders {

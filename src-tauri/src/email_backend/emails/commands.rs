@@ -4,12 +4,13 @@ use serde::{Deserialize, Serialize};
 use crate::email_backend::accounts::manager::AccountManager;
 use crate::email_backend::sync::SyncEngine;
 use email::backend::BackendBuilder;
-use email::imap::ImapContextBuilder;
 use email::smtp::SmtpContextBuilder;
 use email::message::send::SendMessage;
 use email::envelope::Id;
 use email::flag::add::AddFlags;
 use email::flag::Flag;
+use imap_client::imap_next::imap_types::sequence::Sequence;
+use imap_client::imap_next::imap_types::error::ValidationError;
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Email {
@@ -306,22 +307,9 @@ pub async fn get_email_content<R: tauri::Runtime>(app_handle: tauri::AppHandle<R
     .map_err(|e| e.to_string())?;
 
     let (account_id, remote_id, _folder_path) = email_info;
-    let manager = AccountManager::new(&app_handle).await?;
-    let account = manager.get_account_by_id(account_id).await?;
-    let (account_config, imap_config, _) = account.get_configs()?;
 
-    use email::imap::{ImapContext, ImapContextBuilder};
-    use email::backend::context::BackendContextBuilder;
-    use imap_client::imap_next::imap_types::sequence::Sequence;
-    use imap_client::imap_next::imap_types::error::ValidationError;
-
-    // Create a fresh, dedicated connection for this request to avoid pool starvation
-    let ctx_builder = ImapContextBuilder::new(account_config.clone(), imap_config)
-        .with_pool_size(1); // Just one connection for this one-off request
-
-    let context: ImapContext = BackendContextBuilder::build(ctx_builder)
-        .await
-        .map_err(|e| e.to_string())?;
+    let engine = app_handle.state::<SyncEngine<R>>();
+    let context = engine.get_context(account_id).await?;
 
     let mut client = context.client().await;
     
@@ -479,19 +467,10 @@ pub async fn mark_as_read<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, em
             continue;
         }
 
-        let manager = AccountManager::new(&app_handle).await?;
-        if let Ok(account) = manager.get_account_by_id(account_id).await {
-            if let Ok((account_config, imap_config, _)) = account.get_configs() {
-                let backend_builder = BackendBuilder::new(
-                    account_config.clone(),
-                    ImapContextBuilder::new(account_config, imap_config),
-                );
-
-                if let Ok(backend) = backend_builder.build().await {
-                    let id = Id::single(remote_id);
-                    let _ = backend.add_flag(&folder_path, &id, Flag::Seen).await;
-                }
-            }
+        let engine = app_handle.state::<SyncEngine<R>>();
+        if let Ok(backend) = engine.get_backend(account_id).await {
+            let id = Id::single(remote_id);
+            let _ = backend.add_flag(&folder_path, &id, Flag::Seen).await;
         }
 
         let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
@@ -524,7 +503,6 @@ pub async fn mark_as_read<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, em
 #[tauri::command]
 pub async fn move_to_trash<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, email_ids: Vec<i64>) -> Result<(), String> {
     let pool = app_handle.state::<SqlitePool>();
-    let manager = AccountManager::new(&app_handle).await?;
 
     for email_id in email_ids {
         let email_info: Option<(i64, String, i64, String)> = sqlx::query_as(
@@ -561,19 +539,11 @@ pub async fn move_to_trash<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, e
         }
 
         // Perform move on server
-        if let Ok(account) = manager.get_account_by_id(account_id).await {
-            if let Ok((account_config, imap_config, _)) = account.get_configs() {
-                let backend_builder = BackendBuilder::new(
-                    account_config.clone(),
-                    ImapContextBuilder::new(account_config, imap_config),
-                );
-
-                if let Ok(backend) = backend_builder.build().await {
-                    let id = email::envelope::Id::single(remote_id);
-                    use email::message::r#move::MoveMessages;
-                    let _ = backend.move_messages(&source_folder_path, &trash_folder_path, &id).await.map_err(|e| e.to_string())?;
-                }
-            }
+        let engine = app_handle.state::<SyncEngine<R>>();
+        if let Ok(backend) = engine.get_backend(account_id).await {
+            let id = email::envelope::Id::single(remote_id);
+            use email::message::r#move::MoveMessages;
+            let _ = backend.move_messages(&source_folder_path, &trash_folder_path, &id).await.map_err(|e| e.to_string())?;
         }
 
         // Update local DB
