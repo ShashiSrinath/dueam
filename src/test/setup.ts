@@ -13,6 +13,7 @@ globalThis.MouseEvent = window.MouseEvent as any;
 globalThis.getComputedStyle = window.getComputedStyle.bind(window) as any;
 globalThis.requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(cb, 0) as any;
 globalThis.cancelAnimationFrame = (id: number) => clearTimeout(id as any);
+globalThis.DocumentFragment = window.DocumentFragment as any;
 
 import "@testing-library/jest-dom";
 import * as matchers from "@testing-library/jest-dom/matchers";
@@ -95,6 +96,20 @@ const IntersectionObserverMock = mock(function(callback: any, _options: any) {
 Object.defineProperty(globalThis, 'IntersectionObserver', {
   writable: true,
   value: IntersectionObserverMock,
+});
+
+// Mock ResizeObserver
+const ResizeObserverMock = mock(function(callback: any) {
+  return {
+    observe: mock(() => {}),
+    unobserve: mock(() => {}),
+    disconnect: mock(() => {}),
+  };
+});
+
+Object.defineProperty(globalThis, 'ResizeObserver', {
+  writable: true,
+  value: ResizeObserverMock,
 });
 
 afterEach(() => {
