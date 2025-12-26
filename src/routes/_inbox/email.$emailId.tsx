@@ -136,9 +136,29 @@ function ThreadMessage({
   defaultExpanded: boolean;
 }) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const [isStuck, setIsStuck] = useState(false);
+  const headerRef = useRef<HTMLDivElement>(null);
   const [content, setContent] = useState<EmailContent | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      ([e]) => {
+        setIsStuck(e.intersectionRatio < 1);
+      },
+      {
+        threshold: [1],
+        rootMargin: "-1px 0px 1000% 0px",
+      },
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (isExpanded && !content && !loading) {
@@ -188,9 +208,11 @@ function ThreadMessage({
     >
       {/* Header */}
       <div
+        ref={headerRef}
         className={cn(
-          "p-4 pt-[17px] flex items-center gap-4 select-none cursor-pointer transition-colors shrink-0 sticky top-[-1px] z-20 rounded-t-xl",
+          "p-4 pt-[17px] flex items-center gap-4 select-none cursor-pointer transition-colors shrink-0 sticky top-[-1px] z-20",
           isExpanded ? "border-b bg-background shadow-sm" : "",
+          isStuck && isExpanded ? "rounded-none" : "rounded-t-xl",
         )}
         onClick={() => setIsExpanded(!isExpanded)}
       >
