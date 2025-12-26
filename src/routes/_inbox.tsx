@@ -40,6 +40,7 @@ export function InboxLayout() {
   const markAsRead = useEmailStore((state) => state.markAsRead);
   const moveToTrash = useEmailStore((state) => state.moveToTrash);
   const archiveEmails = useEmailStore((state) => state.archiveEmails);
+  const moveToInbox = useEmailStore((state) => state.moveToInbox);
 
   const isAllSelected = emails.length > 0 && selectedIds.size === emails.length;
   const isSomeSelected =
@@ -100,6 +101,8 @@ export function InboxLayout() {
             onDelete={() => moveToTrash(Array.from(selectedIds))}
             onMarkAsRead={() => markAsRead(Array.from(selectedIds))}
             onLabel={() => console.log("Label", Array.from(selectedIds))}
+            onMoveToInbox={() => moveToInbox(Array.from(selectedIds))}
+            showMoveToInbox={view === "spam" || view === "trash"}
           />
         )}
 

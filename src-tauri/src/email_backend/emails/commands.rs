@@ -620,6 +620,89 @@ pub async fn mark_as_read<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, em
 }
 
 #[tauri::command]
+pub async fn move_to_inbox<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, email_ids: Vec<i64>) -> Result<(), String> {
+    let pool = app_handle.state::<SqlitePool>();
+
+    for email_id in email_ids {
+        let email_info: Option<(i64, String, i64, String)> = sqlx::query_as(
+            "SELECT e.account_id, e.remote_id, e.folder_id, f.path FROM emails e JOIN folders f ON e.folder_id = f.id WHERE e.id = ?"
+        )
+        .bind(email_id)
+        .fetch_optional(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        let (account_id, remote_id, source_folder_id, source_folder_path) = match email_info {
+            Some(info) => info,
+            None => continue,
+        };
+
+        // Find inbox folder for this account
+        let inbox_folder_info: Option<(i64, String)> = sqlx::query_as(
+            "SELECT id, path FROM folders WHERE account_id = ? AND role = 'inbox'"
+        )
+        .bind(account_id)
+        .fetch_optional(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        let (inbox_folder_id, inbox_folder_path) = match inbox_folder_info {
+            Some(info) => info,
+            None => return Err(format!("Inbox folder not found for account {}", account_id)),
+        };
+        
+        if source_folder_id == inbox_folder_id {
+            continue;
+        }
+
+        // Perform move on server
+        let engine = app_handle.state::<SyncEngine<R>>();
+        if let Ok(backend) = engine.get_backend(account_id).await {
+            let id = email::envelope::Id::single(remote_id);
+            use email::message::r#move::MoveMessages;
+            let _ = backend.move_messages(&source_folder_path, &inbox_folder_path, &id).await.map_err(|e| e.to_string())?;
+        }
+
+        // Update local DB
+        let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+        // Check if seen to update counts
+        let is_unread: bool = sqlx::query_scalar("SELECT flags NOT LIKE '%seen%' FROM emails WHERE id = ?")
+            .bind(email_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        sqlx::query("UPDATE emails SET folder_id = ? WHERE id = ?")
+            .bind(inbox_folder_id)
+            .bind(email_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Update counts
+        sqlx::query("UPDATE folders SET total_count = MAX(0, total_count - 1), unread_count = MAX(0, unread_count - ?) WHERE id = ?")
+            .bind(if is_unread { 1 } else { 0 })
+            .bind(source_folder_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        sqlx::query("UPDATE folders SET total_count = total_count + 1, unread_count = unread_count + ? WHERE id = ?")
+            .bind(if is_unread { 1 } else { 0 })
+            .bind(inbox_folder_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        tx.commit().await.map_err(|e| e.to_string())?;
+    }
+
+    let _ = app_handle.emit("emails-updated", ());
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn archive_emails<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, email_ids: Vec<i64>) -> Result<(), String> {
     let pool = app_handle.state::<SqlitePool>();
 

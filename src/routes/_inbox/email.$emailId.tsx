@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useSearch } from "@tanstack/react-router";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useEmailStore, Email } from "@/lib/store";
 import { SenderSidebar } from "./-components/sender-sidebar";
 import { ThreadMessage } from "./-components/thread-message";
+import { ToolbarActions } from "./-components/toolbar-actions";
 
 export const Route = createFileRoute("/_inbox/email/$emailId")({
   loader: async ({ params: { emailId } }) => {
@@ -30,10 +31,18 @@ const THREAD_PAGE_SIZE = 20;
 
 export function ThreadView() {
   const { email } = Route.useLoaderData();
+  const search = useSearch({ strict: false }) as any;
+  const view = search.view || "primary";
+
   const [threadEmails, setThreadEmails] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [offset, setOffset] = useState(0);
+  
+  const markAsRead = useEmailStore((state) => state.markAsRead);
+  const moveToTrash = useEmailStore((state) => state.moveToTrash);
+  const archiveEmails = useEmailStore((state) => state.archiveEmails);
+  const moveToInbox = useEmailStore((state) => state.moveToInbox);
 
   const offsetRef = useRef(0);
 
@@ -93,11 +102,21 @@ export function ThreadView() {
   return (
     <div className="flex h-full w-full min-w-0 overflow-hidden">
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        <div className="px-6 py-6 border-b bg-background z-20 shrink-0 shadow-sm">
-          <div className="max-w-4xl mx-auto w-full">
-            <h2 className="text-2xl font-bold break-words line-clamp-2">
+        <div className="px-6 py-4 border-b bg-background z-20 shrink-0 shadow-sm flex items-center justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-xl font-bold break-words line-clamp-1" title={displaySubject}>
               {displaySubject}
             </h2>
+          </div>
+          <div className="shrink-0">
+            <ToolbarActions 
+              onArchive={() => archiveEmails([email.id])}
+              onDelete={() => moveToTrash([email.id])}
+              onMarkAsRead={() => markAsRead([email.id])}
+              onLabel={() => console.log("Label", email.id)}
+              onMoveToInbox={() => moveToInbox([email.id])}
+              showMoveToInbox={view === "spam" || view === "trash"}
+            />
           </div>
         </div>
 

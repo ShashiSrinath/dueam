@@ -138,6 +138,7 @@ interface EmailState {
   markAsRead: (ids: number[]) => Promise<void>;
   moveToTrash: (ids: number[]) => Promise<void>;
   archiveEmails: (ids: number[]) => Promise<void>;
+  moveToInbox: (ids: number[]) => Promise<void>;
 
   // Composer
   composer: {
@@ -579,6 +580,38 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       get().fetchAccountsAndFolders();
     } catch (error) {
       console.error("Failed to archive emails:", error);
+      // Revert if it failed
+      set({
+        emails: currentEmails,
+        selectedIds: currentSelectedIds,
+        selectedEmailId: currentSelectedEmailId,
+      });
+    }
+  },
+
+  moveToInbox: async (ids) => {
+    // 1. Optimistic Update: remove from current list (assuming we are in a view where it should disappear, like Spam)
+    const currentEmails = get().emails;
+    const currentSelectedIds = get().selectedIds;
+    const currentSelectedEmailId = get().selectedEmailId;
+
+    set((state) => ({
+      emails: state.emails.filter((email) => !ids.includes(email.id)),
+      selectedIds: new Set(
+        Array.from(state.selectedIds).filter((id) => !ids.includes(id)),
+      ),
+      selectedEmailId:
+        state.selectedEmailId && ids.includes(state.selectedEmailId)
+          ? null
+          : state.selectedEmailId,
+    }));
+
+    try {
+      await invoke("move_to_inbox", { emailIds: ids });
+      get().fetchUnifiedCounts();
+      get().fetchAccountsAndFolders();
+    } catch (error) {
+      console.error("Failed to move to inbox:", error);
       // Revert if it failed
       set({
         emails: currentEmails,
