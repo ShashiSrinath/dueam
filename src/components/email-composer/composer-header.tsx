@@ -26,7 +26,7 @@ export function ComposerHeader({
   onClose
 }: ComposerHeaderProps) {
   return (
-    <DialogHeader className="px-12 py-6 border-b flex flex-row items-center justify-between space-y-0 bg-background shrink-0">
+    <DialogHeader className="px-6 py-4 border-b flex flex-row items-center justify-between space-y-0 bg-background shrink-0">
       <div className="flex items-center gap-4">
         <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-sm">
             <PenLine className="w-5 h-5" />

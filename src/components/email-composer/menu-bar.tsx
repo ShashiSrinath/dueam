@@ -97,11 +97,11 @@ export const MenuBar = ({ editor, isCodeView, setIsCodeView }: MenuBarProps) => 
   ];
 
   return (
-    <div className="flex items-center justify-between px-3 py-1.5 border-t bg-muted/5 shadow-[0_-1px_0_0_rgba(0,0,0,0.02)] shrink-0">
-      <div className="flex items-center gap-1">
+    <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/5 shrink-0">
+      <div className="flex items-center gap-0.5">
         {mainButtons.map((btn, i) => (
           'type' in btn && btn.type === "separator" ? (
-            <div key={i} className="w-px h-4 bg-border/60 mx-1" />
+            <div key={i} className="w-px h-4 bg-border/60 mx-2" />
           ) : (
             <Tooltip key={i}>
               <TooltipTrigger asChild>
@@ -110,7 +110,7 @@ export const MenuBar = ({ editor, isCodeView, setIsCodeView }: MenuBarProps) => 
                   variant="ghost"
                   size="icon"
                   className={cn(
-                    "w-8 h-8 rounded-lg transition-all duration-200",
+                    "w-9 h-9 rounded-lg transition-all duration-200",
                     (btn as any).isActive?.() 
                       ? "bg-primary/10 text-primary hover:bg-primary/20" 
                       : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -121,13 +121,13 @@ export const MenuBar = ({ editor, isCodeView, setIsCodeView }: MenuBarProps) => 
                   {(btn as any).icon}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="top" className="text-[10px] font-bold uppercase tracking-wider">{(btn as any).title}</TooltipContent>
+              <TooltipContent side="bottom" className="text-[10px] font-bold uppercase tracking-wider">{(btn as any).title}</TooltipContent>
             </Tooltip>
           )
         ))}
       </div>
 
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-0.5">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -135,7 +135,7 @@ export const MenuBar = ({ editor, isCodeView, setIsCodeView }: MenuBarProps) => 
               variant="ghost"
               size="icon"
               className={cn(
-                "w-8 h-8 rounded-lg transition-all duration-200", 
+                "w-9 h-9 rounded-lg transition-all duration-200", 
                 isCodeView ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted"
               )}
               onClick={() => setIsCodeView(!isCodeView)}
@@ -143,28 +143,28 @@ export const MenuBar = ({ editor, isCodeView, setIsCodeView }: MenuBarProps) => 
               {isCodeView ? <Eye className="w-4 h-4" /> : <Code className="w-4 h-4" />}
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="top" className="text-[10px] font-bold uppercase tracking-wider">
+          <TooltipContent side="bottom" className="text-[10px] font-bold uppercase tracking-wider">
             {isCodeView ? "Show Preview" : "Show Source"}
           </TooltipContent>
         </Tooltip>
 
-        <div className="w-px h-4 bg-border/60 mx-1" />
+        <div className="w-px h-4 bg-border/60 mx-2" />
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200"
+                className="w-9 h-9 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200"
                 onClick={() => editor.chain().focus().undo().run()}
                 disabled={isCodeView}
               >
                 <Undo className="w-4 h-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="top" className="text-[10px] font-bold uppercase tracking-wider">Undo</TooltipContent>
+            <TooltipContent side="bottom" className="text-[10px] font-bold uppercase tracking-wider">Undo</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -172,14 +172,14 @@ export const MenuBar = ({ editor, isCodeView, setIsCodeView }: MenuBarProps) => 
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200"
+                className="w-9 h-9 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200"
                 onClick={() => editor.chain().focus().redo().run()}
                 disabled={isCodeView}
               >
                 <Redo className="w-4 h-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="top" className="text-[10px] font-bold uppercase tracking-wider">Redo</TooltipContent>
+            <TooltipContent side="bottom" className="text-[10px] font-bold uppercase tracking-wider">Redo</TooltipContent>
           </Tooltip>
         </div>
       </div>

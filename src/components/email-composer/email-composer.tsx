@@ -83,7 +83,16 @@ export function EmailComposer({
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({
+        bulletList: {
+          keepMarks: true,
+          keepAttributes: false,
+        },
+        orderedList: {
+          keepMarks: true,
+          keepAttributes: false,
+        },
+      }),
       Underline,
       TextStyle,
       Color,
@@ -103,7 +112,7 @@ export function EmailComposer({
     },
     editorProps: {
       attributes: {
-        class: 'prose prose-sm sm:prose-base focus:outline-none max-w-none px-12 py-10 min-h-[450px] font-sans selection:bg-primary/20',
+        class: 'prose-email email-paper focus:outline-none max-w-none px-7 py-6 min-h-full font-sans selection:bg-primary/20',
       },
     },
   });
@@ -277,9 +286,11 @@ export function EmailComposer({
           />
 
           <div className="flex-1 flex flex-col min-h-0 bg-background overflow-hidden relative">
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
+            <MenuBar editor={editor} isCodeView={isCodeView} setIsCodeView={setIsCodeView} />
+            
+            <div className="flex-1 overflow-y-auto custom-scrollbar bg-white">
               {isCodeView ? (
-                <div className="p-12 h-full flex flex-col">
+                <div className="px-7 py-8 h-full flex flex-col">
                   <div className="flex items-center justify-between mb-6">
                       <div className="flex items-center gap-3">
                         <div className="p-2 rounded-xl bg-primary/10 text-primary">
@@ -298,17 +309,18 @@ export function EmailComposer({
                   />
                 </div>
               ) : (
-                <div className="px-0">
+                <div 
+                  className="px-0 h-full cursor-text" 
+                  onClick={() => editor?.commands.focus()}
+                >
                   <Controller
                     name="body"
                     control={control}
-                    render={() => <EditorContent editor={editor} />}
+                    render={() => <EditorContent editor={editor} className="h-full" />}
                   />
                 </div>
               )}
             </div>
-
-            <MenuBar editor={editor} isCodeView={isCodeView} setIsCodeView={setIsCodeView} />
           </div>
 
           <ComposerFooter
