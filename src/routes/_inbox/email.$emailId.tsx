@@ -381,13 +381,33 @@ function EmailBody({
                         color: #1a1a1a;
                         background-color: transparent;
                         word-wrap: break-word;
+                        overflow-wrap: break-word;
                         font-size: 15px;
                     }
                     #content-inner {
                         padding: 1px 0;
+                        width: 100%;
+                        overflow-x: auto;
                     }
-                    img { max-width: 100%; height: auto; display: block; margin: 10px 0; }
-                    pre { white-space: pre-wrap; background: rgba(0,0,0,0.05); padding: 10px; border-radius: 4px; font-family: monospace; }
+                    img { 
+                        max-width: 100%; 
+                        height: auto; 
+                        display: block; 
+                        margin: 10px 0; 
+                    }
+                    pre { 
+                        white-space: pre-wrap; 
+                        word-wrap: break-word;
+                        background: rgba(0,0,0,0.05); 
+                        padding: 10px; 
+                        border-radius: 4px; 
+                        font-family: monospace;
+                    }
+                    table {
+                        max-width: 100%;
+                        height: auto;
+                        border-collapse: collapse;
+                    }
                     a { color: #2563eb; text-decoration: underline; }
                     blockquote {
                         border-left: 3px solid #cbd5e1;
@@ -395,7 +415,9 @@ function EmailBody({
                         padding-left: 15px;
                         color: #64748b;
                     }
-                    * { max-width: 100%; box-sizing: border-box; }
+                    * { 
+                        box-sizing: border-box; 
+                    }
                 </style>
                 <div id="content-inner">${sanitizedHtml}</div>
             `;
@@ -439,11 +461,11 @@ function EmailBody({
 
   return (
     <div
-      className="w-full flex-1 flex flex-col min-h-0"
+      className="w-full flex-1 flex flex-col min-h-0 overflow-hidden"
       onClick={onContentClick}
     >
       {sanitizedHtml ? (
-        <div ref={shadowRef} className="w-full flex-1 min-h-0" />
+        <div ref={shadowRef} className="w-full flex-1 min-h-0 overflow-x-auto" />
       ) : (
         renderTextContent(content.body_text || "No content available.")
       )}
