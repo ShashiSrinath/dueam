@@ -40,34 +40,46 @@ export function AttachmentsList({ attachments }: { attachments: Attachment[] }) 
         <span className="text-xs font-medium uppercase tracking-wider">{attachments.length} Attachments</span>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-        {attachments.map((att) => (
-          <div
-            key={att.id}
-            title={att.filename || "Unnamed"}
-            className="group flex items-start gap-3 p-3 bg-background border rounded-lg hover:border-primary/50 hover:shadow-sm transition-all relative overflow-hidden"
-          >
-            <div className="p-2 rounded-md bg-primary/10 text-primary mt-0.5 shrink-0">
-              <File className="w-4 h-4" />
-            </div>
-            <div className="min-w-0 flex-1 flex flex-col gap-0.5">
-              <span className="text-sm font-medium text-foreground wrap-break-words leading-snug line-clamp-2">
-                {att.filename || "Unnamed"}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {formatSize(att.size)}
-              </span>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 -mr-1 text-muted-foreground hover:text-primary hover:bg-primary/10 shrink-0 self-center"
-              title="Download"
-              onClick={() => downloadAttachment(att)}
+        {attachments.map((att) => {
+          const filename = att.filename || "Unnamed";
+          const lastDot = filename.lastIndexOf(".");
+          const name = lastDot > 0 ? filename.slice(0, lastDot) : filename;
+          const ext = lastDot > 0 ? filename.slice(lastDot) : "";
+
+          return (
+            <div
+              key={att.id}
+              title={filename}
+              className="group flex items-start gap-3 p-3 bg-background border rounded-lg hover:border-primary/50 hover:shadow-sm transition-all relative overflow-hidden"
             >
-              <Download className="w-4 h-4" />
-            </Button>
-          </div>
-        ))}
+              <div className="p-2 rounded-md bg-primary/10 text-primary mt-0.5 shrink-0">
+                <File className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                <div className="flex w-full">
+                  <span className="text-sm font-medium text-foreground truncate">
+                    {name}
+                  </span>
+                  <span className="text-sm font-medium text-foreground shrink-0">
+                    {ext}
+                  </span>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {formatSize(att.size)}
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 -mr-1 text-muted-foreground hover:text-primary hover:bg-primary/10 shrink-0 self-center"
+                title="Download"
+                onClick={() => downloadAttachment(att)}
+              >
+                <Download className="w-4 h-4" />
+              </Button>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
