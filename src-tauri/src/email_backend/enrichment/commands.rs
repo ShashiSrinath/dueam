@@ -3,6 +3,8 @@ use sqlx::SqlitePool;
 use chrono::Utc;
 use crate::email_backend::enrichment::types::{Sender, Domain};
 use crate::email_backend::enrichment::providers::*;
+use crate::email_backend::enrichment::people::*;
+use crate::email_backend::accounts::manager::AccountManager;
 use crate::email_backend::emails::commands::Email;
 
 #[tauri::command]
@@ -83,14 +85,16 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
     let pool = app_handle.state::<SqlitePool>();
     
     let domain_name = extract_domain(&address);
-    let mut avatar_url = Some(get_gravatar_url(&address));
+    let mut avatar_url = None;
     let mut company = None;
     
+    // 0. Preliminary Domain Intelligence for system addresses
     // If it's a corporate system address (e.g. noreply@linkedin.com), 
-    // we should prioritize the domain logo over a potentially missing gravatar.
+    // we should prioritize the domain logo.
     if let Some(d) = &domain_name {
         if !is_common_provider(d) && is_system_address(&address) {
-            avatar_url = Some(get_favicon_url(d));
+            let root_domain = get_root_domain(d);
+            avatar_url = Some(get_favicon_url(&root_domain));
         }
     }
     let mut name = None;
@@ -175,10 +179,11 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
     // 2. Domain Intelligence
     if let Some(d) = &domain_name {
         if !is_common_provider(d) {
-            company = Some(d.clone());
+            let root_domain = get_root_domain(d);
+            company = Some(root_domain.clone());
             
             // Heuristic: Always update/insert domain info to ensure we use the latest provider (e.g. Google instead of Clearbit)
-            let logo_url = get_favicon_url(d);
+            let logo_url = get_favicon_url(&root_domain);
             let _ = sqlx::query(
                 "INSERT INTO domains (domain, logo_url, last_enriched_at) 
                  VALUES (?, ?, ?)
@@ -186,7 +191,7 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
                     logo_url = excluded.logo_url,
                     last_enriched_at = excluded.last_enriched_at"
             )
-            .bind(d)
+            .bind(&root_domain)
             .bind(logo_url)
             .bind(Utc::now())
             .execute(&*pool)
@@ -263,6 +268,60 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
             job_title = existing_job;
             ai_last_enriched_at = last_ai_run;
         }
+    }
+
+    // 4. People API Enrichment (Google, Microsoft, etc.)
+    // Only run if it's potentially a personal email
+    let is_likely_personal = is_personal_email.unwrap_or_else(|| {
+        domain_name.as_ref().map_or(false, |d| is_common_provider(d)) && !is_system_address(&address)
+    });
+
+    if is_likely_personal {
+        if let Ok(manager) = AccountManager::new(app_handle).await {
+            if let Ok(registry) = manager.load().await {
+                // Collect Google tokens
+                let google_tokens: Vec<String> = registry.accounts.iter().filter_map(|a| {
+                    match a {
+                        crate::email_backend::accounts::manager::Account::Google(g) => g.access_token.clone(),
+                    }
+                }).collect();
+
+                if !google_tokens.is_empty() {
+                    let google_provider = GooglePeopleProvider { access_tokens: google_tokens };
+                    if let Ok(Some(people_data)) = google_provider.enrich(&address).await {
+                        log::info!("Enriched {} using Google People API", address);
+                        if let Some(n) = people_data.name { name = Some(n); }
+                        if let Some(av) = people_data.avatar_url { avatar_url = Some(av); }
+                        if let Some(jt) = people_data.job_title { job_title = Some(jt); }
+                        if let Some(c) = people_data.company { company = Some(c); }
+                        if let Some(b) = people_data.bio { bio = Some(b); }
+                        if let Some(loc) = people_data.location { location = Some(loc); }
+                        is_personal_email = Some(true);
+                    }
+                }
+
+                // Collect Microsoft tokens (Placeholder for future)
+                let microsoft_tokens: Vec<String> = Vec::new(); // TODO: Implement Microsoft account type
+                if !microsoft_tokens.is_empty() {
+                    let microsoft_provider = MicrosoftPeopleProvider { access_tokens: microsoft_tokens };
+                    if let Ok(Some(people_data)) = microsoft_provider.enrich(&address).await {
+                        log::info!("Enriched {} using Microsoft People API", address);
+                        if let Some(n) = people_data.name { name = Some(n); }
+                        if let Some(av) = people_data.avatar_url { avatar_url = Some(av); }
+                        if let Some(jt) = people_data.job_title { job_title = Some(jt); }
+                        if let Some(c) = people_data.company { company = Some(c); }
+                        if let Some(b) = people_data.bio { bio = Some(b); }
+                        if let Some(loc) = people_data.location { location = Some(loc); }
+                        is_personal_email = Some(true);
+                    }
+                }
+            }
+        }
+    }
+
+    // 5. Final Fallback: Gravatar if still no avatar found
+    if avatar_url.is_none() {
+        avatar_url = Some(get_gravatar_url(&address));
     }
 
     let now = Utc::now();

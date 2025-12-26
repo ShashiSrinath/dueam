@@ -40,6 +40,7 @@ impl GoogleOAuth2Config {
             "https://mail.google.com/".into(),
             "https://www.googleapis.com/auth/userinfo.email".into(),
             "https://www.googleapis.com/auth/userinfo.profile".into(),
+            "https://www.googleapis.com/auth/contacts.readonly".into(),
         ]);
 
         Ok(GoogleOAuth2Config {

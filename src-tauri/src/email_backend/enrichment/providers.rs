@@ -1,6 +1,7 @@
 use md5;
 use sha2::{Sha256, Digest};
 use serde::{Deserialize, Serialize};
+use addr::parse_domain_name;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GravatarProfile {
@@ -64,6 +65,22 @@ pub fn get_favicon_url(domain: &str) -> String {
 
 pub fn extract_domain(email: &str) -> Option<String> {
     email.split('@').nth(1).map(|d| d.to_lowercase())
+}
+
+pub fn get_root_domain(domain: &str) -> String {
+    if let Ok(parsed) = parse_domain_name(domain) {
+        if let Some(root) = parsed.root() {
+            return root.to_string();
+        }
+    }
+    
+    // Fallback if parsing fails or it's just a TLD
+    let parts: Vec<&str> = domain.split('.').collect();
+    if parts.len() >= 2 {
+        format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1])
+    } else {
+        domain.to_string()
+    }
 }
 
 pub fn is_common_provider(domain: &str) -> bool {

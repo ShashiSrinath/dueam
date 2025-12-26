@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Building2, Check } from "lucide-react";
+import { Building2, Check, CircleUser } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useSenderInfo } from "@/hooks/use-sender-info";
@@ -31,9 +31,15 @@ export function SenderAvatar({
       return part.substring(0, 2).toUpperCase();
     }
 
-    const displayName = name || address;
+    let displayName = (name || "").trim();
+    if (!displayName || displayName === address) {
+      // Use local part of email if no name
+      displayName = address.split('@')[0].replace(/[._-]/g, ' ');
+    }
+    
     return displayName
-      .split(" ")
+      .split(/\s+/)
+      .filter(Boolean)
       .map((n) => n[0])
       .join("")
       .substring(0, 2)
@@ -62,12 +68,11 @@ export function SenderAvatar({
   return (
     <div className={cn("relative flex-shrink-0", className)}>
       <Avatar className={cn("size-9 bg-background", avatarClassName)}>
-        {sender?.avatar_url && !sender.avatar_url.includes('google.com') && (
+        {sender?.avatar_url && (
           <AvatarImage src={sender.avatar_url} alt={sender.name || name || ""} />
         )}
         {sender?.company && (
           <>
-            {/* DuckDuckGo often has better transparent logos */}
             <AvatarImage 
               src={`https://icons.duckduckgo.com/ip3/${sender.company}.ico`} 
               alt={sender.company} 
@@ -89,7 +94,9 @@ export function SenderAvatar({
               <Building2 className="size-2.5 mb-0.5 opacity-60" />
               {initials}
             </div>
-          ) : initials}
+          ) : (
+            initials || <CircleUser className="size-5 opacity-80" />
+          )}
         </AvatarFallback>
       </Avatar>
       {showVerification && sender?.is_verified && (

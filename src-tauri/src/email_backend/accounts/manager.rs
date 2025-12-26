@@ -178,6 +178,43 @@ impl<R: tauri::Runtime> AccountManager<R> {
         self.store.save(path, &data)
     }
 
+    pub async fn refresh_access_token(&self, email: &str) -> Result<String, String> {
+        let mut registry = self.load().await?;
+        let account = registry.accounts.iter_mut()
+            .find(|a| a.email() == email)
+            .ok_or_else(|| format!("Account {} not found", email))?;
+            
+        match account {
+            Account::Google(google) => {
+                let client_id = std::env::var("GOOGLE_CLIENT_ID")
+                    .map_err(|_| "GOOGLE_CLIENT_ID not found in environment".to_string())?;
+                let client_secret = std::env::var("GOOGLE_CLIENT_SECRET")
+                    .map_err(|_| "GOOGLE_CLIENT_SECRET not found in environment".to_string())?;
+
+                let oauth2_config = OAuth2Config {
+                    client_id,
+                    client_secret: Some(Secret::new_raw(client_secret)),
+                    auth_url: "https://accounts.google.com/o/oauth2/auth".into(),
+                    token_url: "https://www.googleapis.com/oauth2/v3/token".into(),
+                    refresh_token: google.refresh_token.as_ref().map(|t| Secret::new_raw(t.clone())).unwrap_or_default(),
+                    ..Default::default()
+                };
+
+                let access_token = oauth2_config.refresh_access_token().await.map_err(|e| e.to_string())?;
+                
+                google.access_token = Some(access_token.clone());
+                // Note: email-lib's refresh_access_token might update the internal refresh_token if it rotates
+                // but it doesn't return it. For Google, rotation is rare.
+                
+                let access_token_val = access_token;
+                
+                self.save(&registry).await?;
+                
+                Ok(access_token_val)
+            }
+        }
+    }
+
     pub async fn add_account(&self, mut account: Account) -> Result<(), String> {
         let pool = self.app_handle.state::<SqlitePool>();
 

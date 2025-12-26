@@ -31,6 +31,7 @@ impl<R: tauri::Runtime> Clone for SyncEngine<R> {
 }
 
 const SYNC_BATCH_SIZE: u32 = 100;
+const MAX_SYNC_MESSAGES_PER_FOLDER: u32 = 500;
 
 use tauri_plugin_notification::NotificationExt;
 
@@ -356,7 +357,11 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         let account_id = account.id().ok_or("Account ID missing")?;
         let pool = app_handle.state::<SqlitePool>();
 
-        info!("Syncing folder {} for {}. Role: {:?}", folder_name, account.email(), role);
+        let dev_mode = std::env::var("DREAM_EMAIL_DEV_MODE")
+            .map(|v| v == "true")
+            .unwrap_or(false);
+
+        info!("Syncing folder {} for {}. Role: {:?}. DevMode: {}", folder_name, account.email(), role, dev_mode);
 
         let current_uid_validity = folder_data.uid_validity.map(|u: NonZeroU32| u.get() as i64).unwrap_or(0);
         let current_uid_next = folder_data.uid_next.map(|u: NonZeroU32| u.get() as i64).unwrap_or(0);
@@ -426,7 +431,14 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         if stored_uid_validity != current_uid_validity || stored_uid_next == 0 {
             info!("Performing full sync for folder {} of {} (total={})", folder_name, account.email(), total_count);
             let mut end = total_count as u32;
+            let mut synced_count = 0;
+            
             while end > 0 {
+                if dev_mode && synced_count >= MAX_SYNC_MESSAGES_PER_FOLDER {
+                    info!("Hard limit of {} reached for folder {} in DevMode. Stopping sync.", MAX_SYNC_MESSAGES_PER_FOLDER, folder_name);
+                    break;
+                }
+
                 let start = if end > SYNC_BATCH_SIZE { end - SYNC_BATCH_SIZE + 1 } else { 1 };
                 info!("Fetching envelopes sequence {}:{} for folder {}", start, end, folder_name);
 
@@ -444,13 +456,16 @@ impl<R: tauri::Runtime> SyncEngine<R> {
                     break;
                 }
 
-                info!("Fetched {} envelopes for sequence {}:{} in folder {}", envelopes.len(), start, end, folder_name);
+                let batch_len = envelopes.len() as u32;
+                info!("Fetched {} envelopes for sequence {}:{} in folder {}", batch_len, start, end, folder_name);
 
                 let is_initial = stored_uid_next == 0;
                 if let Err(e) = Self::save_envelopes(app_handle, account_id, folder_id, envelopes, !is_initial).await {
                     error!("Critical failure saving envelopes for {}: {}. Aborting folder sync.", folder_name, e);
                     return Err(e);
                 }
+                
+                synced_count += batch_len;
                 let _ = app_handle.emit("emails-updated", account_id);
 
                 end = if start > 1 { start - 1 } else { 0 };
@@ -460,12 +475,17 @@ impl<R: tauri::Runtime> SyncEngine<R> {
 
             let start_uid = NonZeroU32::new(stored_uid_next as u32).unwrap_or(NonZeroU32::new(1).unwrap());
             let uids = (start_uid..).into();
-            let envelopes = client.fetch_envelopes(uids).await.map_err(|e| {
+            let mut envelopes = client.fetch_envelopes(uids).await.map_err(|e| {
                 error!("Failed to fetch envelopes incremental UID {}:* for {}: {}", stored_uid_next, folder_name, e);
                 e.to_string()
             })?;
 
             if !envelopes.is_empty() {
+                if dev_mode && envelopes.len() > MAX_SYNC_MESSAGES_PER_FOLDER as usize {
+                    info!("Limiting incremental sync to {} messages in DevMode", MAX_SYNC_MESSAGES_PER_FOLDER);
+                    envelopes.truncate(MAX_SYNC_MESSAGES_PER_FOLDER as usize);
+                }
+
                 info!("Fetched {} new envelopes incrementally for folder {}", envelopes.len(), folder_name);
                 if let Err(e) = Self::save_envelopes(app_handle, account_id, folder_id, envelopes, true).await {
                     error!("Critical failure saving incremental envelopes for {}: {}. Aborting folder sync.", folder_name, e);
