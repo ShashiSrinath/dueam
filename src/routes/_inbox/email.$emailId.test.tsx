@@ -64,4 +64,34 @@ describe("ThreadView", () => {
     // Restore
     Route.useLoaderData = originalUseLoaderData;
   });
+
+  it("renders reply and forward buttons in the thread message", async () => {
+    mockInvoke.mockImplementation((command, _args) => {
+      if (command === "get_email_by_id") return Promise.resolve(mockEmail);
+      if (command === "get_thread_emails") return Promise.resolve(mockThreadEmails);
+      if (command === "get_email_content") return Promise.resolve({ body_text: "Hello", body_html: null });
+      if (command === "get_attachments") return Promise.resolve([]);
+      if (command === "get_sender_info") return Promise.resolve(null);
+      if (command === "get_domain_info") return Promise.resolve(null);
+      if (command === "get_emails_by_sender") return Promise.resolve([]);
+      return Promise.resolve();
+    });
+
+    const originalUseLoaderData = Route.useLoaderData;
+    Route.useLoaderData = () => ({
+      email: mockEmail,
+      threadEmails: mockThreadEmails,
+    }) as any;
+
+    const { getAllByText } = render(<ThreadView />);
+    
+    // Wait for the message to be expanded (first one is by default) and content to load
+    await waitFor(() => {
+        // There should be at least two "Reply" buttons (one in header, one at bottom)
+        expect(getAllByText("Reply").length).toBeGreaterThan(0);
+        expect(getAllByText("Forward").length).toBeGreaterThan(0);
+    });
+
+    Route.useLoaderData = originalUseLoaderData;
+  });
 });
