@@ -91,18 +91,16 @@ export function ThreadView() {
   return (
     <div className="flex h-full w-full min-w-0 overflow-hidden">
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        <ScrollArea className="flex-1 min-h-0 bg-email-view">
-          <div className="px-4 py-8 border-b bg-background z-10 shrink-0 shadow-sm mb-6">
-            <div className="max-w-4xl mx-auto w-full">
-              <div className="flex justify-between items-start gap-4">
-                <h2 className="text-2xl font-bold flex-1 break-words line-clamp-2">
-                  {displaySubject}
-                </h2>
-              </div>
-            </div>
+        <div className="px-6 py-6 border-b bg-background z-20 shrink-0 shadow-sm">
+          <div className="max-w-4xl mx-auto w-full">
+            <h2 className="text-2xl font-bold break-words line-clamp-2">
+              {displaySubject}
+            </h2>
           </div>
+        </div>
 
-          <div className="max-w-4xl mx-auto w-full pb-12 flex flex-col gap-4 px-4">
+        <ScrollArea className="flex-1 min-h-0 bg-email-view">
+          <div className="max-w-4xl mx-auto w-full py-8 flex flex-col gap-4 px-4">
             {threadEmails.map((msg, index) => (
               <ThreadMessage
                 key={msg.id}
