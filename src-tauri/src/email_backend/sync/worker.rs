@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::time::Duration;
-use tauri::Manager;
+use tauri::{Manager, Emitter};
 use log::{info, error};
 use sqlx::SqlitePool;
 use tokio::time::sleep;
@@ -58,8 +58,89 @@ impl<R: tauri::Runtime> SyncWorker<R> {
                     }
                     sleep(Duration::from_secs(120)).await;
                 });
+
+                // Proactive Summarization
+                let app_handle_summarization = app_handle.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = Self::proactive_summarization(&app_handle_summarization).await {
+                        error!("Error during background summarization: {}", e);
+                    }
+                    sleep(Duration::from_secs(120)).await;
+                });
             }
         });
+    }
+
+    async fn proactive_summarization(app_handle: &tauri::AppHandle<R>) -> Result<(), String> {
+        let pool = app_handle.state::<SqlitePool>();
+
+        // Check if enabled
+        let ai_enabled: (String,) = sqlx::query_as("SELECT value FROM settings WHERE key = 'aiEnabled'")
+            .fetch_one(&*pool)
+            .await
+            .unwrap_or(("false".to_string(),));
+        
+        let ai_summarization_enabled: (String,) = sqlx::query_as("SELECT value FROM settings WHERE key = 'aiSummarizationEnabled'")
+            .fetch_one(&*pool)
+            .await
+            .unwrap_or(("false".to_string(),));
+
+        if ai_enabled.0 != "true" || ai_summarization_enabled.0 != "true" {
+            return Ok(());
+        }
+
+        // Find emails that:
+        // 1. Have no summary
+        // 2. Have body_text
+        // 3. Are NOT in spam or trash
+        // 4. Are newer than account_creation - 14 days
+        let pending_summaries: Vec<(i64, String)> = sqlx::query_as(
+            "SELECT e.id, e.body_text
+             FROM emails e
+             JOIN accounts a ON e.account_id = a.id
+             JOIN folders f ON e.folder_id = f.id
+             WHERE e.summary IS NULL 
+               AND e.body_text IS NOT NULL
+               AND f.role != 'spam'
+               AND f.role != 'trash'
+               AND datetime(e.date) > datetime(a.created_at, '-14 days')
+             ORDER BY e.date DESC
+             LIMIT 10" // Process in small batches
+        )
+        .fetch_all(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        if pending_summaries.is_empty() {
+            return Ok(());
+        }
+
+        info!("Proactively summarizing {} emails", pending_summaries.len());
+
+        let mut updated = false;
+        for (id, body_text) in pending_summaries {
+            match crate::email_backend::llm::summarization::summarize_email_with_ai(app_handle, id, &body_text).await {
+                Ok(summary) => {
+                    let _ = sqlx::query("UPDATE emails SET summary = ? WHERE id = ?")
+                        .bind(summary)
+                        .bind(id)
+                        .execute(&*pool)
+                        .await;
+                    updated = true;
+                }
+                Err(e) => {
+                    error!("Failed to summarize email {}: {}", id, e);
+                }
+            }
+            // Polite delay
+            sleep(Duration::from_millis(500)).await;
+        }
+
+        if updated {
+            let _ = app_handle.emit("emails-updated", ());
+        }
+
+        Ok(())
     }
 
     async fn index_pending_emails(app_handle: &tauri::AppHandle<R>) -> Result<(), String> {

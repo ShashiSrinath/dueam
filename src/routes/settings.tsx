@@ -54,6 +54,8 @@ const aiSettingsSchema = z.object({
   aiBaseUrl: z.string(),
   aiApiKey: z.string(),
   aiModel: z.string(),
+  aiSenderEnrichmentEnabled: z.boolean(),
+  aiSummarizationEnabled: z.boolean(),
 });
 
 type AiSettingsValues = z.infer<typeof aiSettingsSchema>;
@@ -63,6 +65,8 @@ function AiSettingsTab() {
   const aiBaseUrl = useSettingsStore((state) => state.settings.aiBaseUrl);
   const aiApiKey = useSettingsStore((state) => state.settings.aiApiKey);
   const aiModel = useSettingsStore((state) => state.settings.aiModel);
+  const aiSenderEnrichmentEnabled = useSettingsStore((state) => state.settings.aiSenderEnrichmentEnabled);
+  const aiSummarizationEnabled = useSettingsStore((state) => state.settings.aiSummarizationEnabled);
   const updateSetting = useSettingsStore((state) => state.updateSetting);
   
   const [showApiKey, setShowApiKey] = useState(false);
@@ -76,6 +80,8 @@ function AiSettingsTab() {
       aiBaseUrl,
       aiApiKey,
       aiModel,
+      aiSenderEnrichmentEnabled,
+      aiSummarizationEnabled,
     },
   });
 
@@ -88,9 +94,11 @@ function AiSettingsTab() {
         aiBaseUrl,
         aiApiKey,
         aiModel,
+        aiSenderEnrichmentEnabled,
+        aiSummarizationEnabled,
       });
     }
-  }, [aiEnabled, aiBaseUrl, aiApiKey, aiModel, form]);
+  }, [aiEnabled, aiBaseUrl, aiApiKey, aiModel, aiSenderEnrichmentEnabled, aiSummarizationEnabled, form]);
 
   const onFieldBlur = async (name: keyof AiSettingsValues) => {
     const value = form.getValues(name);
@@ -265,39 +273,76 @@ function AiSettingsTab() {
             </div>
           </CardContent>
         </Card>
-      </Form>
 
-      {form.watch("aiEnabled") && (
-        <Card>
-          <CardHeader>
-            <CardTitle>AI Features</CardTitle>
-            <CardDescription>
-              Select which AI-powered features you want to enable.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Email Summarization</Label>
-                <p className="text-sm text-muted-foreground">
-                  Automatically summarize long email threads.
-                </p>
+        {form.watch("aiEnabled") && (
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle>AI Features</CardTitle>
+              <CardDescription>
+                Select which AI-powered features you want to enable.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <FormField
+                control={form.control}
+                name="aiSenderEnrichmentEnabled"
+                render={({ field }) => (
+                  <FormItem className="flex items-center justify-between space-y-0">
+                    <div className="space-y-0.5">
+                      <FormLabel>Sender Data Enrichment</FormLabel>
+                      <FormDescription>
+                        Automatically discover professional info, bios, and company data for senders.
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={(checked) => {
+                          field.onChange(checked);
+                          updateSetting("aiSenderEnrichmentEnabled", checked);
+                        }}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+                          <Separator />
+                          <FormField
+                            control={form.control}
+                            name="aiSummarizationEnabled"
+                            render={({ field }) => (
+                              <FormItem className="flex items-center justify-between space-y-0">
+                                <div className="space-y-0.5">
+                                  <FormLabel>Email Summarization</FormLabel>
+                                  <FormDescription>
+                                    Automatically summarize long email threads.
+                                  </FormDescription>
+                                </div>
+                                <FormControl>
+                                  <Switch
+                                    checked={field.value}
+                                    onCheckedChange={(checked) => {
+                                      field.onChange(checked);
+                                      updateSetting("aiSummarizationEnabled", checked);
+                                    }}
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                          <Separator />              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Smart Replies</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Generate context-aware reply suggestions.
+                  </p>
+                </div>
+                <Switch disabled />
               </div>
-              <Switch defaultChecked disabled />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Smart Replies</Label>
-                <p className="text-sm text-muted-foreground">
-                  Generate context-aware reply suggestions.
-                </p>
-              </div>
-              <Switch disabled />
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            </CardContent>
+          </Card>
+        )}
+      </Form>
     </div>
   );
 }

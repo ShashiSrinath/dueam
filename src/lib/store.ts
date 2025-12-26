@@ -36,6 +36,7 @@ export type Email = {
   date: string;
   flags: string;
   snippet: string | null;
+  summary: string | null;
   has_attachments: boolean;
   is_reply: boolean;
   is_forward: boolean;
@@ -284,6 +285,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
           snippet: d.body_html
             ? d.body_html.replace(/<[^>]*>/g, "").substring(0, 100)
             : null,
+          summary: null,
           has_attachments: false,
           is_reply: false,
           is_forward: false,
@@ -310,7 +312,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
               if (
                 existing.flags !== newEmail.flags ||
                 existing.subject !== newEmail.subject ||
-                existing.snippet !== newEmail.snippet
+                existing.snippet !== newEmail.snippet ||
+                existing.summary !== newEmail.summary
               ) {
                 changed = true;
                 return newEmail;

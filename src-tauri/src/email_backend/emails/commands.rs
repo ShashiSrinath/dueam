@@ -30,6 +30,7 @@ pub struct Email {
     pub date: String,
     pub flags: String,
     pub snippet: Option<String>,
+    pub summary: Option<String>,
     pub has_attachments: bool,
     pub is_reply: bool,
     pub is_forward: bool,
@@ -111,7 +112,7 @@ pub async fn get_emails<R: tauri::Runtime>(
             FROM unique_messages
             WHERE msg_rn = 1
          )
-         SELECT e.id, e.account_id, e.folder_id, e.remote_id, e.message_id, e.thread_id, e.t_count as thread_count, e.in_reply_to, e.references_header, e.subject, e.sender_name, e.sender_address, e.recipient_to, e.date, e.flags, e.snippet, e.has_attachments,
+         SELECT e.id, e.account_id, e.folder_id, e.remote_id, e.message_id, e.thread_id, e.t_count as thread_count, e.in_reply_to, e.references_header, e.subject, e.sender_name, e.sender_address, e.recipient_to, e.date, e.flags, e.snippet, e.summary, e.has_attachments,
          (e.subject LIKE 'Re:%' OR e.subject LIKE 're:%' OR e.in_reply_to IS NOT NULL) as is_reply,
          (e.subject LIKE 'Fwd:%' OR e.subject LIKE 'fwd:%' OR e.subject LIKE 'Fw:%' OR e.subject LIKE 'fw:%') as is_forward
          FROM latest_threads e 
@@ -189,7 +190,7 @@ pub async fn get_unified_counts<R: tauri::Runtime>(app_handle: tauri::AppHandle<
     pub async fn get_email_by_id<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, email_id: i64) -> Result<Email, String> {
     let pool = app_handle.state::<SqlitePool>();
     let email = sqlx::query_as::<_, Email>(
-        "SELECT id, account_id, folder_id, remote_id, message_id, thread_id, 1 as thread_count, in_reply_to, references_header, subject, sender_name, sender_address, recipient_to, date, flags, snippet, has_attachments,
+        "SELECT id, account_id, folder_id, remote_id, message_id, thread_id, 1 as thread_count, in_reply_to, references_header, subject, sender_name, sender_address, recipient_to, date, flags, snippet, summary, has_attachments,
          (subject LIKE 'Re:%' OR subject LIKE 're:%' OR in_reply_to IS NOT NULL) as is_reply,
          (subject LIKE 'Fwd:%' OR subject LIKE 'fwd:%' OR subject LIKE 'Fw:%' OR subject LIKE 'fw:%') as is_forward
          FROM emails WHERE id = ?"
@@ -263,7 +264,7 @@ pub async fn get_thread_emails<R: tauri::Runtime>(
     
     query_builder.push(")
         )
-        SELECT id, account_id, folder_id, remote_id, message_id, thread_id, 1 as thread_count, in_reply_to, references_header, subject, sender_name, sender_address, recipient_to, date, flags, snippet, has_attachments,
+        SELECT id, account_id, folder_id, remote_id, message_id, thread_id, 1 as thread_count, in_reply_to, references_header, subject, sender_name, sender_address, recipient_to, date, flags, snippet, summary, has_attachments,
         (subject LIKE 'Re:%' OR subject LIKE 're:%' OR in_reply_to IS NOT NULL) as is_reply,
         (subject LIKE 'Fwd:%' OR subject LIKE 'fwd:%' OR subject LIKE 'Fw:%' OR subject LIKE 'fw:%') as is_forward
         FROM thread_emails
@@ -284,17 +285,61 @@ pub async fn get_thread_emails<R: tauri::Runtime>(
 
 #[tauri::command]
 pub async fn get_email_content<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, email_id: i64) -> Result<EmailContent, String> {
-    let pool = app_handle.state::<SqlitePool>();
+    let pool = app_handle.state::<SqlitePool>().inner().clone();
     
-    let content: Option<EmailContent> = sqlx::query_as::<_, EmailContent>("SELECT body_text, body_html FROM emails WHERE id = ?")
-        .bind(email_id)
-        .fetch_optional(&*pool)
-        .await
-        .map_err(|e| e.to_string())?;
+    let cached_info: Option<(Option<String>, Option<String>, Option<String>, i64)> = sqlx::query_as(
+        "SELECT body_text, body_html, summary, account_id FROM emails WHERE id = ?"
+    )
+    .bind(email_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
 
-    if let Some(c) = content {
-        if c.body_text.is_some() || c.body_html.is_some() {
-            return Ok(c);
+    if let Some((body_text, body_html, summary, _account_id)) = cached_info {
+        if body_text.is_some() || body_html.is_some() {
+            // Content exists, check if we need to trigger summarization
+            if summary.is_none() && body_text.is_some() {
+                let text = body_text.clone().unwrap();
+                let handle = app_handle.clone();
+                let pool_clone = pool.clone();
+                
+                tauri::async_runtime::spawn(async move {
+                    let ai_enabled: (String,) = sqlx::query_as("SELECT value FROM settings WHERE key = 'aiEnabled'")
+                        .fetch_one(&pool_clone)
+                        .await
+                        .unwrap_or(("false".to_string(),));
+                    
+                    let ai_summarization_enabled: (String,) = sqlx::query_as("SELECT value FROM settings WHERE key = 'aiSummarizationEnabled'")
+                        .fetch_one(&pool_clone)
+                        .await
+                        .unwrap_or(("false".to_string(),));
+
+                    if ai_enabled.0 == "true" && ai_summarization_enabled.0 == "true" {
+                        // Check folder role
+                        let role: Option<String> = sqlx::query_scalar("SELECT f.role FROM emails e JOIN folders f ON e.folder_id = f.id WHERE e.id = ?")
+                            .bind(email_id)
+                            .fetch_one(&pool_clone)
+                            .await
+                            .unwrap_or(None);
+
+                        if role.as_deref() != Some("spam") && role.as_deref() != Some("trash") {
+                            if let Ok(s) = crate::email_backend::llm::summarization::summarize_email_with_ai(&handle, email_id, &text).await {
+                                let _ = sqlx::query("UPDATE emails SET summary = ? WHERE id = ?")
+                                    .bind(s)
+                                    .bind(email_id)
+                                    .execute(&pool_clone)
+                                    .await;
+                                let _ = handle.emit("emails-updated", ());
+                            }
+                        }
+                    }
+                });
+            }
+
+            return Ok(EmailContent {
+                body_text,
+                body_html,
+            });
         }
     }
 
@@ -302,11 +347,19 @@ pub async fn get_email_content<R: tauri::Runtime>(app_handle: tauri::AppHandle<R
         "SELECT e.account_id, e.remote_id, f.path FROM emails e JOIN folders f ON e.folder_id = f.id WHERE e.id = ?"
     )
     .bind(email_id)
-    .fetch_one(&*pool)
+    .fetch_one(&pool)
     .await
     .map_err(|e| e.to_string())?;
 
     let (account_id, remote_id, _folder_path) = email_info;
+
+    // Get folder role to check for spam/trash
+    let folder_role: Option<String> = sqlx::query_scalar("SELECT role FROM folders WHERE path = ? AND account_id = ?")
+        .bind(&_folder_path)
+        .bind(account_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(None);
 
     let engine = app_handle.state::<SyncEngine<R>>();
     let context = engine.get_context(account_id).await?;
@@ -342,6 +395,35 @@ pub async fn get_email_content<R: tauri::Runtime>(app_handle: tauri::AppHandle<R
     let parsed = message.parsed().map_err(|e: email::Error| e.to_string())?;
     let body_text: Option<String> = parsed.body_text(0).map(|b| b.to_string());
     let body_html: Option<String> = parsed.body_html(0).map(|b| b.to_string());
+
+    // Trigger AI Summarization in background if enabled
+    if let Some(text) = body_text.clone() {
+        let handle = app_handle.clone();
+        let pool_clone = pool.clone();
+        let folder_role_clone = folder_role.clone();
+        tauri::async_runtime::spawn(async move {
+            let ai_enabled: (String,) = sqlx::query_as("SELECT value FROM settings WHERE key = 'aiEnabled'")
+                .fetch_one(&pool_clone)
+                .await
+                .unwrap_or(("false".to_string(),));
+            
+            let ai_summarization_enabled: (String,) = sqlx::query_as("SELECT value FROM settings WHERE key = 'aiSummarizationEnabled'")
+                .fetch_one(&pool_clone)
+                .await
+                .unwrap_or(("false".to_string(),));
+
+            if ai_enabled.0 == "true" && ai_summarization_enabled.0 == "true" && folder_role_clone.as_deref() != Some("spam") && folder_role_clone.as_deref() != Some("trash") {
+                if let Ok(s) = crate::email_backend::llm::summarization::summarize_email_with_ai(&handle, email_id, &text).await {
+                    let _ = sqlx::query("UPDATE emails SET summary = ? WHERE id = ?")
+                        .bind(s)
+                        .bind(email_id)
+                        .execute(&pool_clone)
+                        .await;
+                    let _ = handle.emit("emails-updated", ());
+                }
+            }
+        });
+    }
 
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
@@ -699,7 +781,7 @@ pub async fn search_emails<R: tauri::Runtime>(
             FROM unique_messages
             WHERE msg_rn = 1
          )
-         SELECT e.id, e.account_id, e.folder_id, e.remote_id, e.message_id, e.thread_id, e.t_count as thread_count, e.in_reply_to, e.references_header, e.subject, e.sender_name, e.sender_address, e.recipient_to, e.date, e.flags, e.snippet, e.has_attachments,
+         SELECT e.id, e.account_id, e.folder_id, e.remote_id, e.message_id, e.thread_id, e.t_count as thread_count, e.in_reply_to, e.references_header, e.subject, e.sender_name, e.sender_address, e.recipient_to, e.date, e.flags, e.snippet, e.summary, e.has_attachments,
          (e.subject LIKE 'Re:%' OR e.subject LIKE 're:%' OR e.in_reply_to IS NOT NULL) as is_reply,
          (e.subject LIKE 'Fwd:%' OR e.subject LIKE 'fwd:%' OR e.subject LIKE 'Fw:%' OR e.subject LIKE 'fw:%') as is_forward
          FROM latest_threads e 

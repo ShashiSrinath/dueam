@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { format } from "date-fns";
 import {
@@ -10,7 +11,8 @@ import {
   ChevronUp,
   MoreHorizontal,
   Paperclip,
-  Mail
+  Mail,
+  Sparkles
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -48,18 +50,20 @@ export function ThreadView() {
   const [hasMore, setHasMore] = useState(false);
   const [offset, setOffset] = useState(0);
 
+  const offsetRef = useRef(0);
+
   const displaySubject = useMemo(
     () => normalizeSubject(email.subject),
     [email.subject],
   );
 
   const fetchThread = useCallback(
-    async (newOffset: number, append: boolean) => {
+    async (newOffset: number, append: boolean, customLimit?: number) => {
       setLoading(true);
       try {
         const emails = await invoke<Email[]>("get_thread_emails", {
           emailId: email.id,
-          limit: THREAD_PAGE_SIZE,
+          limit: customLimit || THREAD_PAGE_SIZE,
           offset: newOffset,
         });
 
@@ -68,8 +72,9 @@ export function ThreadView() {
         } else {
           setThreadEmails(emails);
         }
-        setHasMore(emails.length === THREAD_PAGE_SIZE);
+        setHasMore(emails.length === (customLimit || THREAD_PAGE_SIZE));
         setOffset(newOffset);
+        offsetRef.current = newOffset;
       } catch (err) {
         console.error("Failed to fetch thread:", err);
       } finally {
@@ -81,6 +86,18 @@ export function ThreadView() {
 
   useEffect(() => {
     fetchThread(0, false);
+
+    // Listen for updates to refresh summaries/flags
+    const unlistenPromise = listen("emails-updated", () => {
+      // Refresh current emails in thread to get updated summaries
+      // Fetch everything up to the current offset to avoid losing messages
+      const currentLimit = offsetRef.current + THREAD_PAGE_SIZE;
+      fetchThread(0, false, currentLimit);
+    });
+
+    return () => {
+      unlistenPromise.then(unlisten => unlisten());
+    };
   }, [fetchThread]);
 
   const loadMore = () => {
@@ -130,17 +147,42 @@ export function ThreadView() {
 }
 
 function ThreadMessage({
-  email,
+  email: initialEmail,
   defaultExpanded,
 }: { email: Email;
   defaultExpanded: boolean;
 }) {
+  const [email, setEmail] = useState(initialEmail);
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [isStuck, setIsStuck] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
   const [content, setContent] = useState<EmailContent | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Update local email state if prop changes
+  useEffect(() => {
+    setEmail(initialEmail);
+  }, [initialEmail]);
+
+  useEffect(() => {
+    // Listen for updates to this specific email (e.g. summary generated)
+    const unlistenPromise = listen("emails-updated", async () => {
+      // Refresh this specific email's data to get the summary
+      try {
+        const updatedEmail = await invoke<Email>("get_email_by_id", { emailId: initialEmail.id });
+        if (updatedEmail) {
+          setEmail(updatedEmail);
+        }
+      } catch (err) {
+        console.error("Failed to refresh thread message:", err);
+      }
+    });
+
+    return () => {
+      unlistenPromise.then(unlisten => unlisten());
+    };
+  }, [initialEmail.id]);
 
   useEffect(() => {
     const el = headerRef.current;
@@ -323,16 +365,37 @@ ${email.snippet || ""}`,
           <div className="p-6 md:p-10 flex-1 flex flex-col">
             {loading ? (
               <div className="space-y-4 flex-1">
-                <Skeleton className="h-4 w-3/4 bg-[#e5e7eb]" />
-                <Skeleton className="h-4 w-full bg-[#e5e7eb]" />
-                <Skeleton className="h-4 w-5/6 bg-[#e5e7eb]" />
+                <Skeleton className="h-4 w-3/4 opacity-20" />
+                <Skeleton className="h-4 w-full opacity-20" />
+                <Skeleton className="h-4 w-5/6 opacity-20" />
               </div>
             ) : (
               <div className="space-y-8 flex-1 flex flex-col">
-                <EmailBody
-                  content={content}
-                  onContentClick={handleContentClick}
-                />
+                {email.summary && (
+                  <div className="p-5 rounded-2xl bg-primary/10 text-primary shadow-sm border border-primary/20 relative overflow-hidden group/summary">
+                    <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover/summary:opacity-[0.07] transition-opacity">
+                      <Sparkles className="w-16 h-16 -mr-4 -mt-4 rotate-12" />
+                    </div>
+                    <div className="relative z-10 flex gap-4 items-start">
+                      <div className="mt-1 p-1.5 rounded-lg bg-primary/20 backdrop-blur-sm">
+                        <Sparkles className="w-4 h-4 text-primary" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-[10px] uppercase tracking-[0.12em] font-bold opacity-60 mb-1.5">AI Summary</p>
+                        <p className="text-[15px] font-medium leading-relaxed">
+                          {email.summary}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                <div className="prose-email-container">
+                  <EmailBody
+                    content={content}
+                    onContentClick={handleContentClick}
+                  />
+                </div>
                 {attachments.length > 0 && (
                   <AttachmentsList attachments={attachments} />
                 )}

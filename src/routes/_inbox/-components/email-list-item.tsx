@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { format } from "date-fns";
-import { Paperclip, Check, Reply, Forward } from "lucide-react";
+import { format, isToday, isYesterday, isThisYear } from "date-fns";
+import { Paperclip, Check, Reply, Forward, Sparkles } from "lucide-react";
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Email, useEmailStore } from "@/lib/store";
@@ -34,6 +34,14 @@ export function EmailListItem({
   const setComposer = useEmailStore(state => state.setComposer);
   const accounts = useEmailStore(state => state.accounts);
   const account = useMemo(() => accounts.find(a => a.data.id === email.account_id), [accounts, email.account_id]);
+
+  const date = useMemo(() => {
+    const d = new Date(email.date);
+    if (isToday(d)) return format(d, "HH:mm");
+    if (isYesterday(d)) return "Yesterday";
+    if (isThisYear(d)) return format(d, "MMM d");
+    return format(d, "MM/dd/yy");
+  }, [email.date]);
 
   const handleClick = (e: React.MouseEvent) => {
     if (isDraft) {
@@ -74,13 +82,18 @@ export function EmailListItem({
       }}
       preload={"intent"}
       className={cn(
-        "flex items-start gap-4 p-4 text-left border-b transition-all hover:bg-muted/50 group antialiased",
+        "flex items-start gap-3 px-4 py-3 text-left border-b transition-all hover:bg-muted/40 group antialiased relative",
         selectedEmailId === email.id && "bg-muted shadow-[inset_3px_0_0_0_theme(colors.primary.DEFAULT)]",
         isSelected && "bg-primary/5",
-        isUnread && !isSelected && "bg-blue-50/30"
+        isUnread && !isSelected && "bg-primary/[0.02]"
       )}
     >
-      <div className="flex flex-col items-center justify-center pt-1">
+      {/* Unread Indicator Dot */}
+      {isUnread && !isSelected && (
+        <div className="absolute left-1.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(var(--primary),0.5)]" />
+      )}
+
+      <div className="flex flex-col items-center justify-center pt-0.5 shrink-0">
         <div 
           onClick={handleAvatarClick}
           className="relative cursor-pointer"
@@ -91,7 +104,7 @@ export function EmailListItem({
             address={email.sender_address}
             name={email.sender_name}
             avatarClassName={cn(
-              "transition-all duration-400 ease-in-out",
+              "transition-all duration-400 ease-in-out size-9",
               isSelected ? "scale-0 opacity-0" : "scale-100 opacity-100"
             )}
           />
@@ -108,52 +121,63 @@ export function EmailListItem({
             )} />
           </div>
         </div>
-        {isUnread && !isSelected && (
-          <div className="mt-2 w-2 h-2 rounded-full bg-blue-600 shadow-[0_0_8px_rgba(37,99,235,0.5)]" />
-        )}
       </div>
 
       <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-        <div className="flex justify-between items-start">
-          <div className="flex items-center gap-1.5 overflow-hidden">
-            {email.is_reply && <Reply className="w-3 h-3 text-muted-foreground shrink-0" />}
-            {email.is_forward && <Forward className="w-3 h-3 text-muted-foreground shrink-0" />}
+        <div className="flex justify-between items-baseline">
+          <div className="flex items-center gap-2 overflow-hidden">
             <span className={cn(
-              "truncate text-sm", 
-              isUnread ? "font-bold text-foreground" : "font-medium text-muted-foreground"
+              "truncate text-[14px] transition-colors", 
+              isUnread ? "font-bold text-foreground" : "font-semibold text-muted-foreground group-hover:text-foreground"
             )}>
               {email.sender_name || email.sender_address}
             </span>
+            
             {email.thread_count && email.thread_count > 1 && (
-              <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded-full font-medium text-muted-foreground">
+              <span className="text-[10px] bg-muted/80 px-1.5 py-0.5 rounded-md font-bold text-muted-foreground/70 tabular-nums">
                 {email.thread_count}
               </span>
             )}
+
             {account && (
               <div 
                 title={account.data.email}
-                className="w-1.5 h-1.5 rounded-full bg-primary/40 flex-shrink-0" 
+                className="w-1.5 h-1.5 rounded-full bg-primary/30 flex-shrink-0" 
               />
             )}
           </div>
-          <div className="flex items-center gap-2">
-            {email.has_attachments && <Paperclip className="w-3 h-3 text-muted-foreground" />}
-            <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-              {format(new Date(email.date), "MMM d")}
+          
+          <div className="flex items-center gap-2 shrink-0">
+            {email.has_attachments && <Paperclip className="w-3 h-3 text-muted-foreground/60" />}
+            <span className="text-[11px] font-medium text-muted-foreground/70 whitespace-nowrap tabular-nums">
+              {date}
             </span>
           </div>
         </div>
-        <div className={cn(
-          "text-xs truncate", 
-          isUnread ? "text-foreground font-semibold" : "text-muted-foreground font-medium"
-        )}>
-          {email.subject || "(No Subject)"}
+
+        <div className="flex items-center gap-1.5 min-w-0">
+          {email.is_reply && <Reply className="w-3 h-3 text-primary/60 shrink-0" />}
+          {email.is_forward && <Forward className="w-3 h-3 text-primary/60 shrink-0" />}
+          <div className={cn(
+            "text-[13px] truncate flex-1", 
+            isUnread ? "text-foreground/90 font-medium" : "text-muted-foreground font-normal"
+          )}>
+            {email.subject || "(No Subject)"}
+          </div>
         </div>
-        {email.snippet && (
-          <div className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5 font-normal leading-relaxed">
+
+        {email.summary ? (
+          <div className="mt-1.5 p-2 rounded-lg bg-primary/[0.04] border border-primary/10 group-hover:bg-primary/[0.07] transition-colors shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+            <div className="text-[12px] text-foreground/85 line-clamp-2 font-medium leading-snug flex gap-2 items-start">
+              <Sparkles className="w-3.5 h-3.5 mt-0.5 shrink-0 text-primary/80" />
+              <span>{email.summary}</span>
+            </div>
+          </div>
+        ) : email.snippet ? (
+          <div className="text-[12px] text-muted-foreground/80 line-clamp-2 mt-0.5 font-normal leading-relaxed">
             {email.snippet}
           </div>
-        )}
+        ) : null}
       </div>
     </Link>
   );

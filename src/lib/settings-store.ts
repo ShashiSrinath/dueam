@@ -20,6 +20,8 @@ export interface Settings {
   aiBaseUrl: string;
   aiApiKey: string;
   aiModel: string;
+  aiSenderEnrichmentEnabled: boolean;
+  aiSummarizationEnabled: boolean;
 }
 
 interface SettingsState {
@@ -43,6 +45,8 @@ const defaultSettings: Settings = {
   aiBaseUrl: "https://api.openai.com/v1",
   aiApiKey: "",
   aiModel: "",
+  aiSenderEnrichmentEnabled: true,
+  aiSummarizationEnabled: false,
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({

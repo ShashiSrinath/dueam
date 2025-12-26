@@ -279,10 +279,14 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
     }
 
     // 4. AI Enrichment (optional and sparing)
-    let ai_enabled: (String,) = sqlx::query_as("SELECT value FROM settings WHERE key = 'aiEnabled'")
-        .fetch_one(&*pool)
+    let settings: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM settings WHERE key IN ('aiEnabled', 'aiSenderEnrichmentEnabled')")
+        .fetch_all(&*pool)
         .await
-        .unwrap_or(("false".to_string(),));
+        .unwrap_or_default();
+
+    let settings_map: HashMap<String, String> = settings.into_iter().collect();
+    let ai_enabled = settings_map.get("aiEnabled").map(|v| v.as_str()).unwrap_or("false") == "true";
+    let ai_sender_enrichment_enabled = settings_map.get("aiSenderEnrichmentEnabled").map(|v| v.as_str()).unwrap_or("true") == "true";
 
     // Check if we already have AI data to avoid redundant calls
     let existing_ai_data: Option<(Option<String>, Option<chrono::DateTime<Utc>>)> = sqlx::query_as(
@@ -293,9 +297,9 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
     .await
     .unwrap_or(None);
 
-    log::info!("Ai enabled: {}", &ai_enabled.0);
+    log::info!("AI enrichment status - global: {}, sender: {}", ai_enabled, ai_sender_enrichment_enabled);
 
-    if ai_enabled.0 == "true" {
+    if ai_enabled && ai_sender_enrichment_enabled {
         let (existing_job, last_ai_run) = existing_ai_data.unwrap_or((None, None));
 
         // Sparsity logic:
