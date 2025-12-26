@@ -4,13 +4,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { format } from "date-fns";
 import {
-  Mail,
-  Paperclip,
   Reply,
   Forward,
   ChevronDown,
   ChevronUp,
   MoreHorizontal,
+  Paperclip,
+  Mail
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,29 +20,6 @@ import { useEmailStore, Attachment, EmailContent, Email } from "@/lib/store";
 import { SenderSidebar } from "./-components/sender-sidebar";
 import { SenderAvatar } from "@/components/sender-avatar";
 import { cn } from "@/lib/utils";
-
-function useIsSticky() {
-  const [isSticky, setIsSticky] = useState(false);
-  const sentinelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el || typeof IntersectionObserver === "undefined") return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        // If the sentinel is not intersecting and is above the viewport, we're stuck
-        setIsSticky(!entry.isIntersecting && entry.boundingClientRect.top < 0);
-      },
-      { threshold: [0], rootMargin: "0px 0px 0px 0px" },
-    );
-
-    observer.observe(el);
-    return () => observer.unobserve(el);
-  }, []);
-
-  return { sentinelRef, isSticky };
-}
 
 export const Route = createFileRoute("/_inbox/email/$emailId")({
   loader: async ({ params: { emailId } }) => {
@@ -153,304 +130,195 @@ export function ThreadView() {
 }
 
 function ThreadMessage({
-    email,
-    defaultExpanded,
-  }: {
-    email: Email;
-    defaultExpanded: boolean;
-  }) {
-    const [isExpanded, setIsExpanded] = useState(defaultExpanded);
-    const [content, setContent] = useState<EmailContent | null>(null);
-      const [attachments, setAttachments] = useState<Attachment[]>([]);
-      const [loading, setLoading] = useState(false);
-      const { sentinelRef, isSticky } = useIsSticky();
-    
-      useEffect(() => {
-        if (isExpanded && !content && !loading) {
-          setLoading(true);
-          Promise.all([
-            invoke<EmailContent>("get_email_content", { emailId: email.id }),
-            invoke<Attachment[]>("get_attachments", { emailId: email.id }),
-          ])
-            .then(([c, a]) => {
-              setContent(c);
-              setAttachments(a);
-              setLoading(false);
-            })
-            .catch((err) => {
-              console.error("Failed to fetch message content:", err);
-              setLoading(false);
-            });
+  email,
+  defaultExpanded,
+}: { email: Email;
+  defaultExpanded: boolean;
+}) {
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const [content, setContent] = useState<EmailContent | null>(null);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isExpanded && !content && !loading) {
+      setLoading(true);
+      Promise.all([
+        invoke<EmailContent>("get_email_content", { emailId: email.id }),
+        invoke<Attachment[]>("get_attachments", { emailId: email.id }),
+      ])
+        .then(([c, a]) => {
+          setContent(c);
+          setAttachments(a);
+          setLoading(false);
+        })
+        .catch((err) => {
+          console.error("Failed to fetch message content:", err);
+          setLoading(false);
+        });
+    }
+  }, [isExpanded, email.id, content, loading]);
+
+  const handleContentClick = async (e: React.MouseEvent) => {
+    // For Shadow DOM, we need to check the composed path to find the actual element
+    const path = e.nativeEvent.composedPath();
+    const anchor = path.find((el) => (el as HTMLElement).tagName === "A") as
+      | HTMLAnchorElement
+      | undefined;
+
+    if (anchor) {
+      const href = anchor.getAttribute("href");
+      if (href && (href.startsWith("http") || href.startsWith("mailto:"))) {
+        e.preventDefault();
+        try {
+          await openUrl(href);
+        } catch (error) {
+          console.error("Failed to open link:", error);
         }
-      }, [isExpanded, email.id, content, loading]);
-    
-      const handleContentClick = async (e: React.MouseEvent) => {
-        // For Shadow DOM, we need to check the composed path to find the actual element
-        const path = e.nativeEvent.composedPath();
-        const anchor = path.find((el) => (el as HTMLElement).tagName === "A") as
-          | HTMLAnchorElement
-          | undefined;
-    
-        if (anchor) {
-          const href = anchor.getAttribute("href");
-          if (href && (href.startsWith("http") || href.startsWith("mailto:"))) {
-            e.preventDefault();
-            try {
-              await openUrl(href);
-            } catch (error) {
-              console.error("Failed to open link:", error);
-            }
-          }
-        }
-      };
-    
-      return (
-        <div
-          className={cn(
-            "bg-card text-card-foreground border transition-all flex flex-col shadow-sm relative",
-            isExpanded ? "ring-1 ring-primary/5 shadow-md" : "hover:bg-accent/50",
-            isSticky && isExpanded ? "rounded-none border-x-0 border-t-0" : "rounded-xl",
-          )}
-        >
-          <div ref={sentinelRef} className="absolute top-0 left-0 right-0 h-px invisible pointer-events-none" />
-          {/* Header */}
-          <div
-            className={cn(
-              "p-4 flex items-center gap-4 select-none cursor-pointer transition-colors shrink-0 sticky top-0 z-20",
-              isExpanded ? "border-b bg-background shadow-sm" : "rounded-xl",
-              isSticky && isExpanded ? "rounded-none" : "rounded-t-xl",
-            )}
-            onClick={() => setIsExpanded(!isExpanded)}
-          >
-          <SenderAvatar
-
-            address={email.sender_address}
-
-            name={email.sender_name}
-
-            avatarClassName="w-10 h-10 border border-border"
-
-          />
-
-          <div className="flex-1 min-w-0 flex items-center justify-between">
-
-            <div className="flex flex-col min-w-0">
-
-              <div className="flex items-center gap-2">
-
-                <span className="font-bold text-foreground text-base truncate">
-
-                  {email.sender_name || email.sender_address}
-
-                </span>
-
-                {email.is_reply && (
-
-                  <Reply className="w-3.5 h-3.5 text-muted-foreground" />
-
-                )}
-
-                {email.is_forward && (
-
-                  <Forward className="w-3.5 h-3.5 text-muted-foreground" />
-
-                )}
-
-              </div>
-
-              {!isExpanded && (
-
-                <span className="text-sm text-muted-foreground truncate italic max-w-[500px]">
-
-                  {email.snippet}
-
-                </span>
-
-              )}
-
-              {isExpanded && (
-
-                <span className="text-xs text-muted-foreground truncate">
-
-                  To: {email.recipient_to || "Unknown"}
-
-                </span>
-
-              )}
-
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-
-              {isExpanded && (
-
-                <div className="flex items-center gap-2 mr-2">
-
-                  <Button
-
-                    variant="ghost"
-
-                    size="sm"
-
-                    className="h-8 px-3 text-foreground/70 hover:text-primary hover:bg-primary/10 transition-colors gap-2"
-
-                    aria-label="Reply"
-
-                    onClick={(e) => {
-
-                      e.stopPropagation();
-
-                      useEmailStore.getState().setComposer({
-
-                        open: true,
-
-                        defaultTo: email.sender_address,
-
-                        defaultSubject: email.subject?.startsWith("Re: ")
-
-                          ? email.subject
-
-                          : `Re: ${email.subject}`,
-
-                        defaultBody: `<br><br>On ${format(new Date(email.date), "PPP p")}, ${email.sender_name || email.sender_address} wrote:<br><blockquote>${email.snippet || ""}</blockquote>`,
-
-                      });
-
-                    }}
-
-                  >
-
-                    <Reply className="w-4 h-4" />
-
-                    <span>Reply</span>
-
-                  </Button>
-
-                  <Button
-
-                    variant="ghost"
-
-                    size="sm"
-
-                    className="h-8 px-3 text-foreground/70 hover:text-primary hover:bg-primary/10 transition-colors gap-2"
-
-                    aria-label="Forward"
-
-                    onClick={(e) => {
-
-                      e.stopPropagation();
-
-                      useEmailStore.getState().setComposer({
-
-                        open: true,
-
-                        defaultTo: "",
-
-                        defaultSubject: email.subject?.startsWith("Fwd: ")
-
-                          ? email.subject
-
-                          : `Fwd: ${email.subject}`,
-
-                        defaultBody: `<br><br>---------- Forwarded message ---------
-
-  From: ${email.sender_name} &lt;${email.sender_address}&gt;
-
-  Date: ${format(new Date(email.date), "PPP p")}
-
-  Subject: ${email.subject}
-
-  
-
-  ${email.snippet || ""}`,
-
-                      });
-
-                    }}
-
-                  >
-
-                    <Forward className="w-4 h-4" />
-
-                    <span>Forward</span>
-
-                  </Button>
-
-                </div>
-
-              )}
-
-              <span className="text-xs font-medium text-muted-foreground mr-2">
-
-                {format(new Date(email.date), "MMM d, p")}
-
+      }
+    }
+  };
+
+  return (
+    <div
+      className={cn(
+        "bg-card text-card-foreground border transition-all flex flex-col shadow-sm relative rounded-xl",
+        isExpanded ? "ring-1 ring-primary/5 shadow-md" : "hover:bg-accent/50",
+      )}
+    >
+      {/* Header */}
+      <div
+        className={cn(
+          "p-4 pt-[17px] flex items-center gap-4 select-none cursor-pointer transition-colors shrink-0 sticky top-[-1px] z-20 rounded-t-xl",
+          isExpanded ? "border-b bg-background shadow-sm" : "",
+        )}
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <SenderAvatar
+          address={email.sender_address}
+          name={email.sender_name}
+          avatarClassName="w-10 h-10 border border-border"
+        />
+        <div className="flex-1 min-w-0 flex items-center justify-between">
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-foreground text-base truncate">
+                {email.sender_name || email.sender_address}
               </span>
-
-              <Button
-
-                variant="ghost"
-
-                size="icon"
-
-                className="h-8 w-8 hover:bg-accent"
-
-                onClick={(e) => {
-
-                  e.stopPropagation();
-
-                  setIsExpanded(!isExpanded);
-
-                }}
-
-              >
-
-                {isExpanded ? (
-
-                  <ChevronUp className="w-4 h-4" />
-
-                ) : (
-
-                  <ChevronDown className="w-4 h-4" />
-
-                )}
-
-              </Button>
-
+              {email.is_reply && (
+                <Reply className="w-3.5 h-3.5 text-muted-foreground" />
+              )}
+              {email.is_forward && (
+                <Forward className="w-3.5 h-3.5 text-muted-foreground" />
+              )}
             </div>
-
+            {!isExpanded && (
+              <span className="text-sm text-muted-foreground truncate italic max-w-[500px]">
+                {email.snippet}
+              </span>
+            )}
+            {isExpanded && (
+              <span className="text-xs text-muted-foreground truncate">
+                To: {email.recipient_to || "Unknown"}
+              </span>
+            )}
           </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {isExpanded && (
+              <div className="flex items-center gap-2 mr-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-3 text-foreground/70 hover:text-primary hover:bg-primary/10 transition-colors gap-2"
+                  aria-label="Reply"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    useEmailStore.getState().setComposer({
+                      open: true,
+                      defaultTo: email.sender_address,
+                      defaultSubject: email.subject?.startsWith("Re: ")
+                        ? email.subject
+                        : `Re: ${email.subject}`,
+                      defaultBody: `<br><br>On ${format(new Date(email.date), "PPP p")}, ${email.sender_name || email.sender_address} wrote:<br><blockquote>${email.snippet || ""}</blockquote>`,
+                    });
+                  }}
+                >
+                  <Reply className="w-4 h-4" />
+                  <span>Reply</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-3 text-foreground/70 hover:text-primary hover:bg-primary/10 transition-colors gap-2"
+                  aria-label="Forward"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    useEmailStore.getState().setComposer({
+                      open: true,
+                      defaultTo: "",
+                      defaultSubject: email.subject?.startsWith("Fwd: ")
+                        ? email.subject
+                        : `Fwd: ${email.subject}`,
+                      defaultBody: `<br><br>---------- Forwarded message ---------
+From: ${email.sender_name} &lt;${email.sender_address}&gt;
+Date: ${format(new Date(email.date), "PPP p")}
+Subject: ${email.subject}
 
-        </div>
-
-  
-
-        {/* Content */}
-
-        {isExpanded && (
-
-          <div className="flex-1 flex flex-col bg-white rounded-b-xl relative z-10">
-
-            <div className="p-6 md:p-10 flex-1 flex flex-col">
-                  {loading ? (
-                    <div className="space-y-4 flex-1">
-                      <Skeleton className="h-4 w-3/4 bg-[#e5e7eb]" />
-                      <Skeleton className="h-4 w-full bg-[#e5e7eb]" />
-                      <Skeleton className="h-4 w-5/6 bg-[#e5e7eb]" />
-                    </div>
-                  ) : (
-                    <div className="space-y-8 flex-1 flex flex-col">
-                      <EmailBody
-                        content={content}
-                        onContentClick={handleContentClick}
-                      />
-                      {attachments.length > 0 && (
-                        <AttachmentsList attachments={attachments} />
-                      )}
-                    </div>
-                  )}
-                </div>
+${email.snippet || ""}`,
+                    });
+                  }}
+                >
+                  <Forward className="w-4 h-4" />
+                  <span>Forward</span>
+                </Button>
               </div>
             )}
+            <span className="text-xs font-medium text-muted-foreground mr-2">
+              {format(new Date(email.date), "MMM d, p")}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 hover:bg-accent"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsExpanded(!isExpanded);
+              }}
+            >
+              {isExpanded ? (
+                <ChevronUp className="w-4 h-4" />
+              ) : (
+                <ChevronDown className="w-4 h-4" />
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      {isExpanded && (
+        <div className="flex-1 flex flex-col bg-white rounded-b-xl relative z-10">
+          <div className="p-6 md:p-10 flex-1 flex flex-col">
+            {loading ? (
+              <div className="space-y-4 flex-1">
+                <Skeleton className="h-4 w-3/4 bg-[#e5e7eb]" />
+                <Skeleton className="h-4 w-full bg-[#e5e7eb]" />
+                <Skeleton className="h-4 w-5/6 bg-[#e5e7eb]" />
+              </div>
+            ) : (
+              <div className="space-y-8 flex-1 flex flex-col">
+                <EmailBody
+                  content={content}
+                  onContentClick={handleContentClick}
+                />
+                {attachments.length > 0 && (
+                  <AttachmentsList attachments={attachments} />
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -458,8 +326,7 @@ function ThreadMessage({
 function EmailBody({
   content,
   onContentClick,
-}: {
-  content: EmailContent | null;
+}: { content: EmailContent | null;
   onContentClick: (e: React.MouseEvent) => void;
 }) {
   const shadowRef = useRef<HTMLDivElement>(null);
@@ -500,7 +367,7 @@ function EmailBody({
                     img { max-width: 100%; height: auto; display: block; margin: 10px 0; }
                     pre { white-space: pre-wrap; background: rgba(0,0,0,0.05); padding: 10px; border-radius: 4px; font-family: monospace; }
                     a { color: #2563eb; text-decoration: underline; }
-                    blockquote { 
+                    blockquote {
                         border-left: 3px solid #cbd5e1;
                         margin: 10px 0 10px 10px; 
                         padding-left: 15px;
