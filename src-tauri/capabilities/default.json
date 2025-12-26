@@ -8,6 +8,21 @@
     "opener:default",
     "core:app:allow-default-window-icon",
     "opener:allow-default-urls",
-    "core:event:default"
+    "core:event:default",
+    "dialog:default",
+    "fs:default",
+    "fs:allow-temp-write",
+    "fs:allow-download-write",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        {
+          "path": "$TEMP/*"
+        },
+        {
+          "path": "$DOWNLOAD/*"
+        }
+      ]
+    }
   ]
 }

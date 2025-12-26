@@ -2,26 +2,50 @@ import { invoke } from "@tauri-apps/api/core";
 import { Download, File, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Attachment } from "@/lib/store";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeFile } from "@tauri-apps/plugin-fs";
+import { openPath } from "@tauri-apps/plugin-opener";
+import { tempDir, join, downloadDir } from "@tauri-apps/api/path";
 
 export function AttachmentsList({ attachments }: { attachments: Attachment[] }) {
-  const downloadAttachment = async (att: Attachment) => {
+  const downloadAttachment = async (e: React.MouseEvent, att: Attachment) => {
+    e.stopPropagation(); // Prevent opening the file when clicking download
+    try {
+      const filename = att.filename || "attachment";
+      const downloadPath = await downloadDir();
+      const defaultPath = await join(downloadPath, filename);
+      
+      const filePath = await save({
+        defaultPath,
+      });
+
+      if (!filePath) return;
+
+      const data = await invoke<number[]>("get_attachment_data", {
+        attachmentId: att.id,
+      });
+      
+      await writeFile(filePath, new Uint8Array(data));
+    } catch (error) {
+      console.error("Failed to download attachment:", error);
+    }
+  };
+
+  const openAttachment = async (att: Attachment) => {
     try {
       const data = await invoke<number[]>("get_attachment_data", {
         attachmentId: att.id,
       });
-      const blob = new Blob([new Uint8Array(data)], {
-        type: att.mime_type || "application/octet-stream",
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = att.filename || "attachment";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      
+      const temp = await tempDir();
+      const filename = att.filename || `attachment-${att.id}`;
+      const filePath = await join(temp, filename);
+      
+      await writeFile(filePath, new Uint8Array(data));
+      console.log("Opening attachment at:", filePath);
+      await openPath(filePath);
     } catch (error) {
-      console.error("Failed to download attachment:", error);
+      console.error("Failed to open attachment:", error);
     }
   };
 
@@ -50,7 +74,8 @@ export function AttachmentsList({ attachments }: { attachments: Attachment[] }) 
             <div
               key={att.id}
               title={filename}
-              className="group flex items-start gap-3 p-3 bg-background border rounded-lg hover:border-primary/50 hover:shadow-sm transition-all relative overflow-hidden"
+              onClick={() => openAttachment(att)}
+              className="group flex items-start gap-3 p-3 bg-background border rounded-lg hover:border-primary/50 hover:shadow-sm transition-all relative overflow-hidden cursor-pointer"
             >
               <div className="p-2 rounded-md bg-primary/10 text-primary mt-0.5 shrink-0">
                 <File className="w-4 h-4" />
@@ -72,8 +97,8 @@ export function AttachmentsList({ attachments }: { attachments: Attachment[] }) 
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 -mr-1 text-muted-foreground hover:text-primary hover:bg-primary/10 shrink-0 self-center"
-                title="Download"
-                onClick={() => downloadAttachment(att)}
+                title="Save As..."
+                onClick={(e) => downloadAttachment(e, att)}
               >
                 <Download className="w-4 h-4" />
               </Button>
