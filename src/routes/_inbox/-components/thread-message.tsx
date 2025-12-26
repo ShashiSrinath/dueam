@@ -150,8 +150,8 @@ export function ThreadMessage({
           name={email.sender_name}
           avatarClassName="w-10 h-10 border border-border"
         />
-        <div className="flex-1 min-w-0 flex items-center justify-between">
-          <div className="flex flex-col min-w-0">
+        <div className="flex-1 min-w-0 flex items-center justify-between gap-4">
+          <div className="flex flex-col min-w-0 gap-0.5">
             <div className="flex items-center gap-2">
               <span className="font-bold text-foreground text-base truncate">
                 {email.sender_name || email.sender_address}
@@ -163,30 +163,52 @@ export function ThreadMessage({
                 <Forward className="w-3.5 h-3.5 text-muted-foreground" />
               )}
             </div>
-            {!isExpanded && (
+            {!isExpanded ? (
               <span className="text-sm text-muted-foreground truncate italic max-w-[500px]">
                 {email.snippet}
               </span>
-            )}
-            {isExpanded && (
+            ) : (
               <span className="text-xs text-muted-foreground truncate">
                 To: {email.recipient_to || "Unknown"}
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                {format(new Date(email.date), "MMM d, p")}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 hover:bg-accent -mr-2"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsExpanded(!isExpanded);
+                }}
+              >
+                {isExpanded ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
+              </Button>
+            </div>
+            
             {isExpanded && (
-              <>
-                <div onClick={(e) => e.stopPropagation()}>
-                  <ToolbarActions
-                    onArchive={onArchive}
-                    onDelete={onDelete}
-                    onMarkAsRead={onMarkAsRead}
-                    onMoveToInbox={onMoveToInbox}
-                    showMoveToInbox={showMoveToInbox}
-                  />
-                </div>
-                <div className="flex items-center gap-2 mr-2">
+              <div 
+                className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-200"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ToolbarActions
+                  onArchive={onArchive}
+                  onDelete={onDelete}
+                  onMarkAsRead={onMarkAsRead}
+                  onMoveToInbox={onMoveToInbox}
+                  showMoveToInbox={showMoveToInbox}
+                />
+                <div className="h-4 w-px bg-border mx-1" />
                 <Button
                   variant="ghost"
                   size="sm"
@@ -230,26 +252,7 @@ export function ThreadMessage({
                   <span>Forward</span>
                 </Button>
               </div>
-            </>
             )}
-            <span className="text-xs font-medium text-muted-foreground mr-2">
-              {format(new Date(email.date), "MMM d, p")}
-            </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 hover:bg-accent"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsExpanded(!isExpanded);
-              }}
-            >
-              {isExpanded ? (
-                <ChevronUp className="w-4 h-4" />
-              ) : (
-                <ChevronDown className="w-4 h-4" />
-              )}
-            </Button>
           </div>
         </div>
       </div>
