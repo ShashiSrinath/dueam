@@ -34,8 +34,8 @@ describe("AppSidebar", () => {
       if (command === "get_accounts") return Promise.resolve(mockAccounts);
       if (command === "get_folders") return Promise.resolve(mockFolders);
       if (command === "get_unified_counts") return Promise.resolve({
-          primary_count: 5,
-          others: 0,
+          primary: 5,
+          sent: 0,
           spam: 0,
           drafts: 0,
       });
@@ -43,7 +43,7 @@ describe("AppSidebar", () => {
     });
   });
 
-  it("renders accounts and folders", async () => {
+  it("renders unified inbox info", async () => {
     await act(async () => {
       await useEmailStore.getState().fetchAccountsAndFolders();
       useEmailStore.setState({ isInitialized: true });
@@ -58,10 +58,6 @@ describe("AppSidebar", () => {
     const screen = within(document.body);
 
     await waitFor(() => {
-      expect(screen.getByText("Test User")).toBeInTheDocument();
-    });
-
-    await waitFor(() => {
       expect(screen.getByText("Inbox")).toBeInTheDocument();
       // Use getAllByText and check that at least one '5' is found, or be more specific
       const unreadBadges = screen.getAllByText("5");
@@ -69,7 +65,7 @@ describe("AppSidebar", () => {
     });
   });
 
-  it("renders main and smart folders", () => {
+  it("renders main mailboxes", () => {
     render(
       <SidebarProvider>
         <AppSidebar />
@@ -78,7 +74,7 @@ describe("AppSidebar", () => {
 
     const screen = within(document.body);
     expect(screen.getByText("Inbox")).toBeInTheDocument();
-    expect(screen.getByText("Flagged")).toBeInTheDocument();
-    expect(screen.getByText("Drafts")).toBeInTheDocument();
+    expect(screen.getByText("Sent")).toBeInTheDocument();
+    expect(screen.getByText("Spam")).toBeInTheDocument();
   });
 });

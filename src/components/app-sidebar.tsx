@@ -143,42 +143,7 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Accounts</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={!search.account_id}>
-                  <Link to="/" search={{ ...search, account_id: undefined }}>
-                    <LayoutGrid className="w-4 h-4" />
-                    <span>All Accounts</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              {accounts.map((account) => (
-                <SidebarMenuItem key={account.data.email}>
-                  <SidebarMenuButton
-                    asChild
-                    tooltip={account.data.email}
-                    isActive={search.account_id === account.data.id}
-                  >
-                    <Link
-                      to="/"
-                      search={{ ...search, account_id: account.data.id }}
-                    >
-                      {account.type === "google" ? (
-                        <Gmail className="w-4 h-4" />
-                      ) : (
-                        <Mail className="w-4 h-4" />
-                      )}
-                      <span>{account.data.name || account.data.email}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+
       </SidebarContent>
       <SidebarFooter className="border-t border-sidebar-border">
         <SidebarMenu>

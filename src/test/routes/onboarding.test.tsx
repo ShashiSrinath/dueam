@@ -1,8 +1,8 @@
-import "../test/setup";
+import "../setup";
 import { describe, it, expect, beforeEach } from "bun:test";
 import { render, within, fireEvent, waitFor } from "@testing-library/react";
-import { OnboardingComponent } from "./onboarding";
-import { mockNavigate } from "../test/setup";
+import { OnboardingComponent } from "@/routes/onboarding";
+import { mockNavigate } from "../setup";
 import { useEmailStore } from "@/lib/store";
 
 describe("OnboardingComponent", () => {

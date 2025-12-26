@@ -1,8 +1,8 @@
-import "../../test/setup";
+import "../../setup";
 import { render, within, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach } from "bun:test";
-import { Route, ThreadView } from "./email.$emailId";
-import { mockInvoke } from "../../test/setup";
+import { Route, ThreadView } from "@/routes/_inbox/email.$emailId";
+import { mockInvoke } from "../../setup";
 
 const mockEmail = {
   id: 1,

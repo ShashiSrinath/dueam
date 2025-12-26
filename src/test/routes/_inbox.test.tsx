@@ -1,8 +1,8 @@
-import "../test/setup";
+import "../setup";
 import { render, within, fireEvent, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, beforeEach, mock } from "bun:test";
-import { InboxLayout } from "./_inbox";
-import { mockInvoke, mockListen, mockNavigate } from "../test/setup";
+import { InboxLayout } from "@/routes/_inbox";
+import { mockInvoke, mockListen, mockNavigate } from "../setup";
 import { useEmailStore } from "@/lib/store";
 import { useParams } from "@tanstack/react-router";
 
@@ -138,4 +138,3 @@ describe("InboxLayout", () => {
     });
   });
 });
-
