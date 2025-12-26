@@ -22,7 +22,7 @@ import {
 import { Link, useSearch } from "@tanstack/react-router";
 import { Gmail } from "@/components/ui/svgs/gmail";
 import { useEmailStore } from "@/lib/store";
-import { EmailComposer } from "./email-composer";
+import { EmailComposer } from "./email-composer/email-composer";
 
 export function AppSidebar() {
   const accounts = useEmailStore((state) => state.accounts);
