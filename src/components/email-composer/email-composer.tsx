@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
@@ -6,7 +6,7 @@ import Link from '@tiptap/extension-link';
 import Color from '@tiptap/extension-color';
 import { TextStyle } from '@tiptap/extension-text-style';
 import Placeholder from '@tiptap/extension-placeholder';
-import { useForm, Controller } from "react-hook-form";
+import { useForm, Controller, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import {
@@ -74,8 +74,9 @@ export function EmailComposer({
   const [isCodeView, setIsCodeView] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>(defaultAttachments);
   const lastSavedRef = useRef<string>("");
+  const isInitializedRef = useRef<string | null>(null);
 
-  const { register, handleSubmit, control, watch, setValue, reset, formState: { errors } } = useForm<EmailFormValues>({
+  const { register, handleSubmit, control, setValue, reset, formState: { errors } } = useForm<EmailFormValues>({
     resolver: zodResolver(emailSchema),
     defaultValues: {
       accountId: accounts[0]?.data.id || 0,
@@ -87,35 +88,39 @@ export function EmailComposer({
     }
   });
 
+  const extensions = useMemo(() => [
+    StarterKit.configure({
+      bulletList: {
+        keepMarks: true,
+        keepAttributes: false,
+      },
+      orderedList: {
+        keepMarks: true,
+        keepAttributes: false,
+      },
+    }),
+    Underline,
+    TextStyle,
+    Color,
+    Placeholder.configure({
+      placeholder: 'Write your message here...',
+    }),
+    Link.configure({
+      openOnClick: false,
+      HTMLAttributes: {
+        class: 'text-primary underline cursor-pointer',
+      },
+    }),
+  ], []);
+
+  const onUpdate = useCallback(({ editor }: { editor: any }) => {
+    setValue("body", editor.getHTML(), { shouldDirty: true });
+  }, [setValue]);
+
   const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        bulletList: {
-          keepMarks: true,
-          keepAttributes: false,
-        },
-        orderedList: {
-          keepMarks: true,
-          keepAttributes: false,
-        },
-      }),
-      Underline,
-      TextStyle,
-      Color,
-      Placeholder.configure({
-        placeholder: 'Write your message here...',
-      }),
-      Link.configure({
-        openOnClick: false,
-        HTMLAttributes: {
-          class: 'text-primary underline cursor-pointer',
-        },
-      }),
-    ],
+    extensions,
     content: defaultBody,
-    onUpdate: ({ editor }) => {
-      setValue("body", editor.getHTML(), { shouldDirty: true });
-    },
+    onUpdate,
     editorProps: {
       attributes: {
         class: 'prose-email email-paper focus:outline-none max-w-none px-7 py-6 min-h-full font-sans selection:bg-primary/20',
@@ -126,6 +131,9 @@ export function EmailComposer({
   // Load draft or reset on open
   useEffect(() => {
     if (open) {
+      const initKey = `${initialDraftId || 'new'}-${open}`;
+      if (isInitializedRef.current === initKey && editor) return;
+
       const initComposer = async () => {
         if (initialDraftId) {
           try {
@@ -138,12 +146,14 @@ export function EmailComposer({
               subject: draft.subject || '',
               body: draft.body_html || '',
             });
-            editor?.commands.setContent(draft.body_html || '');
+            if (editor) {
+                editor.commands.setContent(draft.body_html || '');
+            }
             setDraftId(initialDraftId);
             setIsSaved(true);
             setAttachments(draft.attachments || []);
-            if (draft.cc_address) setShowCc(true);
-            if (draft.bcc_address) setShowBcc(true);
+            setShowCc(!!draft.cc_address);
+            setShowBcc(!!draft.bcc_address);
             lastSavedRef.current = JSON.stringify({
               accountId: draft.account_id,
               to: draft.to_address || '',
@@ -153,6 +163,7 @@ export function EmailComposer({
               body: draft.body_html || '',
               attachmentIds: (draft.attachments || []).map((a: any) => a.id)
             });
+            isInitializedRef.current = initKey;
           } catch (e) {
             console.error("Failed to fetch draft:", e);
           }
@@ -165,21 +176,26 @@ export function EmailComposer({
             subject: defaultSubject,
             body: defaultBody,
           });
-          editor?.commands.setContent(defaultBody);
+          if (editor) {
+              editor.commands.setContent(defaultBody);
+          }
           setDraftId(undefined);
           setIsSaved(false);
           setAttachments(defaultAttachments);
           setShowCc(!!defaultCc);
           setShowBcc(!!defaultBcc);
           lastSavedRef.current = "";
+          isInitializedRef.current = initKey;
         }
       };
       initComposer();
+    } else {
+        isInitializedRef.current = null;
     }
   }, [open, initialDraftId, defaultTo, defaultCc, defaultBcc, defaultSubject, defaultBody, defaultAttachments, reset, editor, accounts]);
 
   // Watch for changes to trigger autosave
-  const formData = watch();
+  const formData = useWatch({ control });
 
   // Sync editor content if body changes from outside (like code view)
   useEffect(() => {
@@ -191,10 +207,13 @@ export function EmailComposer({
   }, [formData.body, editor, isCodeView]);
 
   useEffect(() => {
-    if (!open || !formData.accountId) return;
+    if (!open || !formData || !formData.accountId) return;
 
     const currentDataString = JSON.stringify({ ...formData, attachmentIds: attachments.map(a => a.id) });
     if (currentDataString === lastSavedRef.current) return;
+
+    // Data changed, reset saved status
+    setIsSaved(false);
 
     const timer = setTimeout(async () => {
       if (!formData.to && !formData.subject && (formData.body === '<p></p>' || !formData.body) && attachments.length === 0) return;
@@ -218,10 +237,7 @@ export function EmailComposer({
       }
     }, 2000);
 
-    return () => {
-        clearTimeout(timer);
-        setIsSaved(false);
-    };
+    return () => clearTimeout(timer);
   }, [formData, attachments, draftId, open]);
 
   const onSend = async (data: EmailFormValues) => {
@@ -280,7 +296,7 @@ export function EmailComposer({
         )}
       >
         <ComposerHeader
-          subject={formData.subject}
+          subject={formData.subject || ""}
           isSaved={isSaved}
           isMaximized={isMaximized}
           setIsMaximized={setIsMaximized}
