@@ -61,6 +61,8 @@ export type Sender = {
   twitter_handle: string | null;
   website_url: string | null;
   is_verified: boolean;
+  is_personal_email: boolean | null;
+  is_automated_mailer: boolean | null;
   ai_last_enriched_at: string | null;
   last_enriched_at: string | null;
 };

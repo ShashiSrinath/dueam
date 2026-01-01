@@ -119,7 +119,7 @@ impl<R: tauri::Runtime> SyncWorker<R> {
 
         let mut updated = false;
         for (id, body_text) in pending_summaries {
-            match crate::email_backend::llm::summarization::summarize_email_with_ai(app_handle, id, &body_text).await {
+            match crate::email_backend::llm::summarization::summarize_email_with_ai(app_handle, id, &body_text, false).await {
                 Ok(summary) => {
                     let _ = sqlx::query("UPDATE emails SET summary = ? WHERE id = ?")
                         .bind(summary)
@@ -152,7 +152,7 @@ impl<R: tauri::Runtime> SyncWorker<R> {
             .map_err(|e| e.to_string())?;
 
         if let Some(text) = body_text {
-            match crate::email_backend::llm::summarization::summarize_email_with_ai(app_handle, email_id, &text).await {
+            match crate::email_backend::llm::summarization::summarize_email_with_ai(app_handle, email_id, &text, false).await {
                 Ok(summary) => {
                     let _ = sqlx::query("UPDATE emails SET summary = ? WHERE id = ?")
                         .bind(summary)

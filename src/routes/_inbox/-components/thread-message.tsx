@@ -3,12 +3,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { format } from "date-fns";
+import { toast } from "sonner";
 import {
   Reply,
   Forward,
   ChevronDown,
   ChevronUp,
   Sparkles,
+  RotateCcw,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -44,6 +46,7 @@ export function ThreadMessage({
   const [content, setContent] = useState<EmailContent | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
   const aiEnabled = useSettingsStore(state => state.settings.aiEnabled);
   const aiSummarizationEnabled = useSettingsStore(state => state.settings.aiSummarizationEnabled);
 
@@ -51,6 +54,23 @@ export function ThreadMessage({
   useEffect(() => {
     setEmail(initialEmail);
   }, [initialEmail]);
+
+  const handleRegenerateSummary = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isRegenerating) return;
+    
+    setIsRegenerating(true);
+    try {
+      const newSummary = await invoke<string>("regenerate_summary", { emailId: email.id });
+      setEmail(prev => ({ ...prev, summary: newSummary }));
+      toast.success("Summary regenerated");
+    } catch (err) {
+      console.error("Failed to regenerate summary:", err);
+      toast.error(typeof err === "string" ? err : "Failed to regenerate summary");
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
 
   useEffect(() => {
     // Listen for updates to this specific email (e.g. summary generated)
@@ -284,6 +304,22 @@ export function ThreadMessage({
                         <p className="text-[15px] font-medium leading-relaxed">
                           {email.summary}
                         </p>
+                      </div>
+                      <div className="opacity-0 group-hover/summary:opacity-100 transition-opacity">
+                         <Button 
+                           variant="ghost" 
+                           size="sm" 
+                           className="h-8 px-2 text-[10px] uppercase font-bold tracking-wider hover:bg-primary/20 text-primary flex items-center gap-1.5"
+                           onClick={handleRegenerateSummary}
+                           disabled={isRegenerating}
+                         >
+                           {isRegenerating ? (
+                             <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                           ) : (
+                             <RotateCcw className="w-3.5 h-3.5" />
+                           )}
+                           <span>{isRegenerating ? "Regenerating..." : "Regenerate"}</span>
+                         </Button>
                       </div>
                     </div>
                   </div>

@@ -1,6 +1,6 @@
 use crate::email_backend::accounts::commands::{login_with_google, login_with_microsoft, add_imap_smtp_account, get_accounts, remove_account};
-use crate::email_backend::emails::commands::{get_emails, get_folders, refresh_folder, get_unified_counts, get_email_content, get_attachments, get_attachment_data, save_attachment_to_path, open_attachment, mark_as_read, move_to_trash, archive_emails, move_to_inbox, get_email_by_id, get_thread_emails, send_email, save_draft, get_drafts, delete_draft, get_draft_by_id, search_emails};
-use crate::email_backend::enrichment::commands::{get_sender_info, get_domain_info, get_emails_by_sender};
+use crate::email_backend::emails::commands::{get_emails, get_folders, refresh_folder, get_unified_counts, get_email_content, regenerate_summary, get_attachments, get_attachment_data, save_attachment_to_path, open_attachment, mark_as_read, move_to_trash, archive_emails, move_to_inbox, get_email_by_id, get_thread_emails, send_email, save_draft, get_drafts, delete_draft, get_draft_by_id, search_emails};
+use crate::email_backend::enrichment::commands::{get_sender_info, get_domain_info, get_emails_by_sender, regenerate_sender_info, update_sender_info};
 use crate::email_backend::llm::commands::get_available_models;
 use crate::db::settings::{get_settings, update_setting};
 use crate::email_backend::sync::{SyncEngine, SyncWorker};
@@ -113,6 +113,7 @@ pub fn run() {
             refresh_folder,
             get_unified_counts,
             get_email_content,
+            regenerate_summary,
             get_attachments,
             get_attachment_data,
             save_attachment_to_path,
@@ -132,6 +133,8 @@ pub fn run() {
             get_settings,
             update_setting,
             get_sender_info,
+            regenerate_sender_info,
+            update_sender_info,
             get_domain_info,
             get_emails_by_sender,
             get_available_models

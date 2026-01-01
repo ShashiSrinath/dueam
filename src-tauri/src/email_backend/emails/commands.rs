@@ -340,7 +340,7 @@ pub async fn get_email_content<R: tauri::Runtime>(app_handle: tauri::AppHandle<R
                                 .unwrap_or(None);
 
                             if role.as_deref() != Some("spam") && role.as_deref() != Some("trash") {
-                                if let Ok(s) = crate::email_backend::llm::summarization::summarize_email_with_ai(&handle, email_id, &text).await {
+                                if let Ok(s) = crate::email_backend::llm::summarization::summarize_email_with_ai(&handle, email_id, &text, false).await {
                                     let _ = sqlx::query("UPDATE emails SET summary = ? WHERE id = ?")
                                         .bind(s)
                                         .bind(email_id)
@@ -431,7 +431,7 @@ pub async fn get_email_content<R: tauri::Runtime>(app_handle: tauri::AppHandle<R
                 .unwrap_or(("false".to_string(),));
 
             if ai_enabled.0 == "true" && ai_summarization_enabled.0 == "true" && folder_role_clone.as_deref() != Some("spam") && folder_role_clone.as_deref() != Some("trash") {
-                if let Ok(s) = crate::email_backend::llm::summarization::summarize_email_with_ai(&handle, email_id, &text).await {
+                if let Ok(s) = crate::email_backend::llm::summarization::summarize_email_with_ai(&handle, email_id, &text, false).await {
                     let _ = sqlx::query("UPDATE emails SET summary = ? WHERE id = ?")
                         .bind(s)
                         .bind(email_id)
@@ -493,6 +493,33 @@ pub async fn get_email_content<R: tauri::Runtime>(app_handle: tauri::AppHandle<R
         body_text,
         body_html,
     })
+}
+
+#[tauri::command]
+pub async fn regenerate_summary<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, email_id: i64) -> Result<String, String> {
+    let pool = app_handle.state::<SqlitePool>();
+    
+    let body_text: Option<String> = sqlx::query_scalar("SELECT body_text FROM emails WHERE id = ?")
+        .bind(email_id)
+        .fetch_one(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let text = body_text.ok_or_else(|| "No body text found for summarization".to_string())?;
+
+    // Use force=true to bypass cache
+    let summary = crate::email_backend::llm::summarization::summarize_email_with_ai(&app_handle, email_id, &text, true).await?;
+
+    sqlx::query("UPDATE emails SET summary = ? WHERE id = ?")
+        .bind(&summary)
+        .bind(email_id)
+        .execute(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let _ = app_handle.emit("emails-updated", ());
+    
+    Ok(summary)
 }
 
 #[tauri::command]

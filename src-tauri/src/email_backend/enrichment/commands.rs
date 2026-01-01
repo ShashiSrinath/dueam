@@ -74,6 +74,61 @@ pub async fn get_sender_info<R: tauri::Runtime>(
     let enriched = enrich_sender_internal(&app_handle, address, manual).await?;
     Ok(Some(enriched))
 }
+
+#[tauri::command]
+pub async fn regenerate_sender_info<R: tauri::Runtime>(
+    app_handle: tauri::AppHandle<R>,
+    address: String,
+) -> Result<Sender, String> {
+    log::info!("regenerate_sender_info called for {}", address);
+    // Passing true for manual_trigger forces re-enrichment
+    let enriched = enrich_sender_internal(&app_handle, address, true).await?;
+    Ok(enriched)
+}
+
+#[tauri::command]
+pub async fn update_sender_info<R: tauri::Runtime>(
+    app_handle: tauri::AppHandle<R>,
+    sender: Sender,
+) -> Result<(), String> {
+    let pool = app_handle.state::<SqlitePool>();
+    
+    let is_verified = sender.github_handle.is_some() || sender.twitter_handle.is_some() || sender.linkedin_handle.is_some();
+
+    sqlx::query(
+        "UPDATE senders SET
+            name = ?,
+            job_title = ?,
+            company = ?,
+            location = ?,
+            bio = ?,
+            website_url = ?,
+            github_handle = ?,
+            twitter_handle = ?,
+            linkedin_handle = ?,
+            is_verified = ?,
+            updated_at = CURRENT_TIMESTAMP
+         WHERE address = ?"
+    )
+    .bind(&sender.name)
+    .bind(&sender.job_title)
+    .bind(&sender.company)
+    .bind(&sender.location)
+    .bind(&sender.bio)
+    .bind(&sender.website_url)
+    .bind(&sender.github_handle)
+    .bind(&sender.twitter_handle)
+    .bind(&sender.linkedin_handle)
+    .bind(is_verified)
+    .bind(&sender.address)
+    .execute(&*pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let _ = app_handle.emit("sender-updated", &sender.address);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn get_domain_info<R: tauri::Runtime>(
     app_handle: tauri::AppHandle<R>,
