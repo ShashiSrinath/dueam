@@ -325,7 +325,7 @@ function EditSenderDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[426px]">
         <DialogHeader>
           <DialogTitle>Edit Sender Details</DialogTitle>
         </DialogHeader>

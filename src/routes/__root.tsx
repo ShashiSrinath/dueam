@@ -48,7 +48,15 @@ const RootLayout = () => {
 
     // Apply font size
     root.style.fontSize = `${settings.fontSize}px`;
-    root.style.fontFamily = settings.fontFamily;
+    
+    // Map font family names to their full CSS font stacks
+    const fontMap: Record<string, string> = {
+      "Inter": "'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+      "Roboto": "'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif",
+      "JetBrains Mono": "'JetBrains Mono', monospace",
+      "system-ui": "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+    };
+    root.style.fontFamily = fontMap[settings.fontFamily] || settings.fontFamily;
   }, [settings]);
 
   const isAuthRoute =
