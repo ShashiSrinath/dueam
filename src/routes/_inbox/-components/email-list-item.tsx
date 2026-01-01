@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { format, isToday, isYesterday, isThisYear } from "date-fns";
 import { Paperclip, Check, Reply, Forward, Sparkles } from "lucide-react";
-import { useMemo, memo } from "react";
+import { useMemo, memo, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { Email, useEmailStore } from "@/lib/store";
 import { useSettingsStore } from "@/lib/settings-store";
@@ -33,10 +33,11 @@ export const EmailListItem = memo(function EmailListItem({
 }: EmailListItemProps) {
   const isDraft = email.folder_id === -1;
   const setComposer = useEmailStore(state => state.setComposer);
-  const accounts = useEmailStore(state => state.accounts);
+  
+  // Granular store subscriptions
+  const account = useEmailStore(state => state.accountsMap[email.account_id]);
   const aiEnabled = useSettingsStore(state => state.settings.aiEnabled);
   const aiSummarizationEnabled = useSettingsStore(state => state.settings.aiSummarizationEnabled);
-  const account = useMemo(() => accounts.find(a => a.data.id === email.account_id), [accounts, email.account_id]);
 
   const date = useMemo(() => {
     const d = new Date(email.date);
@@ -46,7 +47,7 @@ export const EmailListItem = memo(function EmailListItem({
     return format(d, "MM/dd/yy");
   }, [email.date]);
 
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = useCallback((e: React.MouseEvent) => {
     if (isDraft) {
       e.preventDefault();
       setComposer({
@@ -57,9 +58,9 @@ export const EmailListItem = memo(function EmailListItem({
         defaultBody: email.snippet || "",
       });
     }
-  };
+  }, [isDraft, email.id, email.sender_address, email.subject, email.snippet, setComposer]);
 
-  const handleAvatarClick = (e: React.MouseEvent) => {
+  const handleAvatarClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (e.shiftKey) {
@@ -67,7 +68,7 @@ export const EmailListItem = memo(function EmailListItem({
     } else {
       onToggleSelect(email.id);
     }
-  };
+  }, [email.id, onSelectRange, onToggleSelect]);
 
   return (
     <Link

@@ -25,10 +25,14 @@ import { useEmailStore } from "@/lib/store";
 import { EmailComposer } from "./email-composer/email-composer";
 
 export function AppSidebar() {
-  const unifiedCounts = useEmailStore((state) => state.unifiedCounts);
-  const search = useSearch({ strict: false }) as any;
-  const composer = useEmailStore((state) => state.composer);
+  // Granular selectors to avoid re-rendering the whole sidebar on every store change
+  const primaryCount = useEmailStore((state) => state.unifiedCounts.primary);
+  const spamCount = useEmailStore((state) => state.unifiedCounts.spam);
+  const composerOpen = useEmailStore((state) => state.composer.open);
+  const composerData = useEmailStore((state) => state.composer); // We need this for the composer props
   const setComposer = useEmailStore((state) => state.setComposer);
+
+  const search = useSearch({ strict: false }) as any;
 
   return (
     <Sidebar variant="inset">
@@ -62,15 +66,15 @@ export function AppSidebar() {
         </div>
 
         <EmailComposer
-          open={composer.open}
+          open={composerOpen}
           onOpenChange={(open) => setComposer({ open })}
-          draftId={composer.draftId}
-          defaultTo={composer.defaultTo}
-          defaultCc={composer.defaultCc}
-          defaultBcc={composer.defaultBcc}
-          defaultSubject={composer.defaultSubject}
-          defaultBody={composer.defaultBody}
-          defaultAttachments={composer.defaultAttachments}
+          draftId={composerData.draftId}
+          defaultTo={composerData.defaultTo}
+          defaultCc={composerData.defaultCc}
+          defaultBcc={composerData.defaultBcc}
+          defaultSubject={composerData.defaultSubject}
+          defaultBody={composerData.defaultBody}
+          defaultAttachments={composerData.defaultAttachments}
         />
 
         <SidebarGroup>
@@ -96,9 +100,9 @@ export function AppSidebar() {
                   >
                     <Inbox className="w-4 h-4" />
                     <span>Inbox</span>
-                    {unifiedCounts.primary > 0 && (
+                    {primaryCount > 0 && (
                       <span className="ml-auto text-[10px] bg-primary text-primary-foreground px-1.5 rounded-full font-bold">
-                        {unifiedCounts.primary}
+                        {primaryCount}
                       </span>
                     )}
                   </Link>
@@ -146,9 +150,9 @@ export function AppSidebar() {
                   >
                     <ShieldAlert className="w-4 h-4" />
                     <span>Spam</span>
-                    {unifiedCounts.spam > 0 && (
+                    {spamCount > 0 && (
                       <span className="ml-auto text-[10px] text-destructive font-bold">
-                        {unifiedCounts.spam}
+                        {spamCount}
                       </span>
                     )}
                   </Link>

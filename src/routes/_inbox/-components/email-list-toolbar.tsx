@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Search } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useState, useEffect } from "react";
 
 interface EmailListToolbarProps {
   isAllSelected: boolean;
@@ -9,8 +10,8 @@ interface EmailListToolbarProps {
   onToggleSelectAll: () => void;
   title: string;
   emailCount: number;
-  searchValue: string;
-  onSearchChange: (value: string) => void;
+  initialSearchValue: string;
+  onSearchDebounced: (value: string) => void;
 }
 
 export function EmailListToolbar({
@@ -19,9 +20,26 @@ export function EmailListToolbar({
   onToggleSelectAll,
   title,
   emailCount,
-  searchValue,
-  onSearchChange,
+  initialSearchValue,
+  onSearchDebounced,
 }: EmailListToolbarProps) {
+  const [localSearch, setLocalSearch] = useState(initialSearchValue);
+
+  // Sync local search when initialSearchValue changes (e.g. on navigation)
+  useEffect(() => {
+    setLocalSearch(initialSearchValue);
+  }, [initialSearchValue]);
+
+  // Handle debouncing locally
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localSearch !== initialSearchValue) {
+        onSearchDebounced(localSearch);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [localSearch, initialSearchValue, onSearchDebounced]);
+
   return (
     <div className="p-4 border-b bg-background flex flex-col gap-4 shrink-0">
       <div className="flex justify-between items-center h-8">
@@ -40,8 +58,8 @@ export function EmailListToolbar({
           type="search"
           placeholder="Search emails..."
           className="pl-9 h-10 bg-muted/30 border-none focus-visible:ring-1 focus-visible:bg-background transition-all"
-          value={searchValue}
-          onChange={(e) => onSearchChange(e.target.value)}
+          value={localSearch}
+          onChange={(e) => setLocalSearch(e.target.value)}
         />
       </div>
     </div>

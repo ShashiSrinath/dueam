@@ -1,11 +1,10 @@
 import { createFileRoute, useSearch } from "@tanstack/react-router";
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { useEmailStore, Email } from "@/lib/store";
-import { EmailEvent } from "@/hooks/use-emails";
 import { SenderSidebar } from "./-components/sender-sidebar";
 import { ThreadMessage } from "./-components/thread-message";
 
@@ -34,93 +33,39 @@ export function ThreadView() {
   const search = useSearch({ strict: false }) as any;
   const view = search.view || "primary";
 
-  const [threadEmails, setThreadEmails] = useState<Email[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [hasMore, setHasMore] = useState(false);
-  const [offset, setOffset] = useState(0);
-  
+  const {
+    data,
+    isLoading,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ["thread", email.id],
+    queryFn: async ({ pageParam = 0 }) => {
+      return await invoke<Email[]>("get_thread_emails", {
+        emailId: email.id,
+        limit: THREAD_PAGE_SIZE,
+        offset: pageParam,
+      });
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => {
+      if (lastPage.length < THREAD_PAGE_SIZE) return undefined;
+      return allPages.length * THREAD_PAGE_SIZE;
+    },
+  });
+
+  const threadEmails = useMemo(() => data?.pages.flat() || [], [data]);
+
   const markAsRead = useEmailStore((state) => state.markAsRead);
   const moveToTrash = useEmailStore((state) => state.moveToTrash);
   const archiveEmails = useEmailStore((state) => state.archiveEmails);
   const moveToInbox = useEmailStore((state) => state.moveToInbox);
 
-  const offsetRef = useRef(0);
-  const threadEmailsRef = useRef<Email[]>([]);
-
-  useEffect(() => {
-    threadEmailsRef.current = threadEmails;
-  }, [threadEmails]);
-
   const displaySubject = useMemo(
     () => normalizeSubject(email.subject),
     [email.subject],
   );
-
-  const fetchThread = useCallback(
-    async (newOffset: number, append: boolean, customLimit?: number) => {
-      setLoading(true);
-      try {
-        const emails = await invoke<Email[]>("get_thread_emails", {
-          emailId: email.id,
-          limit: customLimit || THREAD_PAGE_SIZE,
-          offset: newOffset,
-        });
-
-        if (append) {
-          setThreadEmails((prev) => [...prev, ...emails]);
-        } else {
-          setThreadEmails(emails);
-        }
-        setHasMore(emails.length === (customLimit || THREAD_PAGE_SIZE));
-        setOffset(newOffset);
-        offsetRef.current = newOffset;
-      } catch (err) {
-        console.error("Failed to fetch thread:", err);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [email.id],
-  );
-
-  useEffect(() => {
-    fetchThread(0, false);
-  }, [fetchThread]);
-
-  useEffect(() => {
-    // Listen for updates to refresh summaries/flags
-    const unlistenPromise = listen<EmailEvent | any>("emails-updated", (event) => {
-      if (event.payload && typeof event.payload === 'object' && 'type' in event.payload) {
-        const emailEvent = event.payload as EmailEvent;
-        
-        // Only refresh if the affected email is in our current threadEmails list
-        const isRelevant = 
-          (emailEvent.type === "email-updated" && threadEmailsRef.current.some(e => e.id === emailEvent.payload.id)) ||
-          (emailEvent.type === "emails-updated-bulk" && threadEmailsRef.current.some(e => emailEvent.payload.ids.includes(e.id))) ||
-          (emailEvent.type === "email-removed" && threadEmailsRef.current.some(e => e.id === emailEvent.payload.id)) ||
-          (emailEvent.type === "emails-removed-bulk" && threadEmailsRef.current.some(e => emailEvent.payload.ids.includes(e.id))) ||
-          (emailEvent.type === "email-added" && emailEvent.payload.thread_id === email.thread_id);
-
-        if (isRelevant) {
-          const currentLimit = offsetRef.current + THREAD_PAGE_SIZE;
-          fetchThread(0, false, currentLimit);
-        }
-      } else {
-        // Fallback for non-granular events
-        const currentLimit = offsetRef.current + THREAD_PAGE_SIZE;
-        fetchThread(0, false, currentLimit);
-      }
-    });
-
-    return () => {
-      unlistenPromise.then(unlisten => unlisten());
-    };
-  }, [fetchThread, email.thread_id]);
-
-  const loadMore = () => {
-    if (loading || !hasMore) return;
-    fetchThread(offset + THREAD_PAGE_SIZE, true);
-  };
 
   return (
     <div className="flex h-full w-full min-w-0 overflow-hidden">
@@ -148,16 +93,21 @@ export function ThreadView() {
               />
             ))}
 
-            {hasMore && (
+            {hasNextPage && (
               <div className="py-4 flex justify-center">
                 <Button
                   variant="ghost"
-                  onClick={loadMore}
-                  disabled={loading}
+                  onClick={() => fetchNextPage()}
+                  disabled={isFetchingNextPage}
                   className="text-muted-foreground hover:text-foreground"
                 >
-                  {loading ? "Loading..." : "Load older messages"}
+                  {isFetchingNextPage ? "Loading..." : "Load older messages"}
                 </Button>
+              </div>
+            )}
+            {isLoading && threadEmails.length === 0 && (
+              <div className="py-8 text-center text-muted-foreground animate-pulse">
+                Loading thread...
               </div>
             )}
           </div>

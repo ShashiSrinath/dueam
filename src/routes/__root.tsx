@@ -8,6 +8,7 @@ import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useEmailStore } from "@/lib/store";
 import { useSettingsStore } from "@/lib/settings-store";
+import { useGlobalEvents } from "@/hooks/use-global-events";
 import { useEffect } from "react";
 import { Mail } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
@@ -16,7 +17,12 @@ import "../styles.css";
 const RootLayout = () => {
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const accounts = useEmailStore((state) => state.accounts);
+  
+  // Initialize global event listeners
+  useGlobalEvents();
+  
+  // Granular selectors
+  const accountsCount = useEmailStore((state) => state.accounts.length);
   const isInitialized = useEmailStore((state) => state.isInitialized);
   const init = useEmailStore((state) => state.init);
   const settings = useSettingsStore((state) => state.settings);
@@ -69,10 +75,10 @@ const RootLayout = () => {
     if (!isInitialized) return;
 
     // If no accounts and not on an auth route, redirect to onboarding
-    if (accounts.length === 0 && !isAuthRoute) {
+    if (accountsCount === 0 && !isAuthRoute) {
       navigate({ to: "/onboarding" });
     }
-  }, [accounts.length, isAuthRoute, navigate, isInitialized]);
+  }, [accountsCount, isAuthRoute, navigate, isInitialized]);
 
   if (!isInitialized) {
     return (

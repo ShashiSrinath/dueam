@@ -6,7 +6,6 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Email, Domain, Sender } from "@/lib/store";
-import { EmailEvent } from "@/hooks/use-emails";
 import { format } from "date-fns";
 import { Link } from "@tanstack/react-router";
 import { SenderAvatar } from "@/components/sender-avatar";
@@ -55,39 +54,8 @@ export function SenderSidebar({ address, name: initialName }: { address: string;
   }, [address, fetchRecentEmails]);
 
   useEffect(() => {
-    const unlistenPromise = listen<EmailEvent | any>("emails-updated", (event) => {
-      // Check if it's a granular event
-      if (event.payload && typeof event.payload === 'object' && 'type' in event.payload) {
-        const emailEvent = event.payload as EmailEvent;
-        
-        if (emailEvent.type === "email-added") {
-          if (emailEvent.payload.sender_address === address) {
-            fetchRecentEmails();
-          }
-        } else if (emailEvent.type === "email-updated") {
-          if (emailEvent.payload.address === address) {
-            fetchRecentEmails();
-          }
-        } else if (emailEvent.type === "emails-updated-bulk") {
-            // Check if any of the IDs are in our recent emails list
-            if (recentEmailsRef.current.some((e: Email) => emailEvent.payload.ids.includes(e.id))) {
-                fetchRecentEmails();
-            }
-        } else if (emailEvent.type === "email-removed") {
-          // We don't know the address for removed, but we can check if the ID was in our recent emails
-          if (recentEmailsRef.current.some((e: Email) => e.id === emailEvent.payload.id)) {
-            fetchRecentEmails();
-          }
-        } else if (emailEvent.type === "emails-removed-bulk") {
-            const idSet = new Set(emailEvent.payload.ids);
-            if (recentEmailsRef.current.some((e: Email) => idSet.has(e.id))) {
-                fetchRecentEmails();
-            }
-        }
-      } else {
-        // Fallback for legacy generic events or account-id based events
-        fetchRecentEmails();
-      }
+    const unlistenPromise = listen("emails-updated", () => {
+      fetchRecentEmails();
     });
 
     const unlistenSenderPromise = listen("sender-updated", async (event) => {

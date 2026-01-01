@@ -104,20 +104,11 @@ interface EmailState {
 
   // Accounts & Folders
   accounts: Account[];
+  accountsMap: Record<number, Account>;
   accountFolders: Record<number, Folder[]>;
   unifiedCounts: UnifiedCounts;
   fetchAccountsAndFolders: () => Promise<void>;
   fetchUnifiedCounts: () => Promise<void>;
-
-  // Emails List
-  emails: Email[]; // We keep this for multi-selection reference if needed, but it's mostly unused now
-  lastSearchParams: {
-    account_id?: number;
-    view?: string;
-    filter?: string;
-    search?: string;
-  } | null;
-  refreshEmails: () => Promise<void>;
 
   // Selected Email
   selectedEmailId: number | null;
@@ -126,8 +117,8 @@ interface EmailState {
   // Multi-selection
   selectedIds: Set<number>;
   toggleSelect: (id: number) => void;
-  selectRange: (id: number) => void;
-  toggleSelectAll: () => void;
+  selectRange: (id: number, orderedIds: number[]) => void;
+  toggleSelectAll: (ids: number[]) => void;
   clearSelection: () => void;
 
   // Actions
@@ -154,20 +145,18 @@ const initialState: Pick<
   EmailState,
   | "isInitialized"
   | "accounts"
+  | "accountsMap"
   | "accountFolders"
   | "unifiedCounts"
-  | "emails"
-  | "lastSearchParams"
   | "selectedEmailId"
   | "selectedIds"
   | "composer"
 > = {
   isInitialized: false,
   accounts: [],
+  accountsMap: {},
   accountFolders: {},
   unifiedCounts: { primary: 0, sent: 0, spam: 0 },
-  emails: [],
-  lastSearchParams: null,
   selectedEmailId: null,
   selectedIds: new Set<number>(),
   composer: {
@@ -181,21 +170,23 @@ export const useEmailStore = create<EmailState>((set, get) => ({
   fetchAccountsAndFolders: async () => {
     try {
       const accounts = (await invoke<Account[]>("get_accounts")) || [];
+      const accountsMap: Record<number, Account> = {};
+      accounts.forEach(a => {
+        if (a.data.id) accountsMap[a.data.id] = a;
+      });
       
-      // Only update accounts if they've changed
       const currentAccounts = get().accounts;
       const accountsChanged = accounts.length !== currentAccounts.length || 
         accounts.some((a, i) => a.data.id !== currentAccounts[i]?.data.id || a.data.email !== currentAccounts[i]?.data.email);
       
       if (accountsChanged) {
-        set({ accounts });
+        set({ accounts, accountsMap });
       }
 
       const foldersMap: Record<number, Folder[]> = {};
       const currentFoldersMap = get().accountFolders;
       let foldersChanged = false;
 
-      // Parallelize folder fetching for all accounts
       await Promise.all(
         accounts.map(async (account) => {
           if (account.data.id) {
@@ -245,24 +236,10 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }
   },
 
-  refreshEmails: async () => {
-    // This is now handled by TanStack Query invalidation usually,
-    // but we can keep it for manual triggers if needed.
-    // For now we'll just keep the signature.
-  },
-
   setSelectedEmailId: (id) => {
     const currentId = get().selectedEmailId;
     if (currentId === id) return;
-
     set({ selectedEmailId: id });
-
-    if (id) {
-      const email = get().emails.find((e) => e.id === id);
-      if (email && !email.flags.includes("seen")) {
-        get().markAsRead([id]);
-      }
-    }
   },
 
   toggleSelect: (id) => {
@@ -277,32 +254,26 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     });
   },
 
-  selectRange: (id) => {
-    const { emails, selectedIds, selectedEmailId } = get();
-    if (emails.length === 0) return;
+  selectRange: (id, orderedIds) => {
+    const { selectedIds, selectedEmailId } = get();
+    if (orderedIds.length === 0) return;
 
-    const currentIndex = emails.findIndex((e) => e.id === id);
+    const currentIndex = orderedIds.indexOf(id);
     if (currentIndex === -1) return;
 
-    // Use the last selected item or the focused item as the anchor
     let anchorId = selectedEmailId;
     if (selectedIds.size > 0 && !selectedIds.has(anchorId || -1)) {
-      // If focused item isn't selected, find the "last" selected item's index
-      // For simplicity, we'll just take the one with the highest/lowest index that is already selected
-      // But a better way is to track the last clicked item.
-      // For now, let's just find any selected item's index.
-      const selectedIndices = emails
-        .map((e, i) => (selectedIds.has(e.id) ? i : -1))
+      const selectedIndices = orderedIds
+        .map((id, i) => (selectedIds.has(id) ? i : -1))
         .filter((i) => i !== -1);
 
       if (selectedIndices.length > 0) {
-        // Find the index closest to currentIndex
         const closestIndex = selectedIndices.reduce((prev, curr) =>
           Math.abs(curr - currentIndex) < Math.abs(prev - currentIndex)
             ? curr
             : prev,
         );
-        anchorId = emails[closestIndex].id;
+        anchorId = orderedIds[closestIndex];
       }
     }
 
@@ -311,7 +282,7 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       return;
     }
 
-    const anchorIndex = emails.findIndex((e) => e.id === anchorId);
+    const anchorIndex = orderedIds.indexOf(anchorId);
     if (anchorIndex === -1) {
       get().toggleSelect(id);
       return;
@@ -326,21 +297,21 @@ export const useEmailStore = create<EmailState>((set, get) => ({
 
       for (let i = start; i <= end; i++) {
         if (isSelecting) {
-          next.add(emails[i].id);
+          next.add(orderedIds[i]);
         } else {
-          next.delete(emails[i].id);
+          next.delete(orderedIds[i]);
         }
       }
       return { selectedIds: next };
     });
   },
 
-  toggleSelectAll: () => {
-    const { emails, selectedIds } = get();
-    if (selectedIds.size === emails.length && emails.length > 0) {
+  toggleSelectAll: (ids) => {
+    const { selectedIds } = get();
+    if (selectedIds.size === ids.length && ids.length > 0) {
       set({ selectedIds: new Set() });
     } else {
-      set({ selectedIds: new Set(emails.map((e) => e.id)) });
+      set({ selectedIds: new Set(ids) });
     }
   },
 
@@ -350,44 +321,15 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     set((s) => ({ composer: { ...s.composer, ...state } })),
 
   markAsRead: async (ids) => {
-    // 1. Optimistic Update
-    set((state) => ({
-      emails: state.emails.map((email) => {
-        if (ids.includes(email.id) && !email.flags.includes("seen")) {
-          // Parse and update flags
-          try {
-            const flags = JSON.parse(email.flags) as string[];
-            if (!flags.includes("seen")) {
-              flags.push("seen");
-            }
-            return { ...email, flags: JSON.stringify(flags) };
-          } catch {
-            return { ...email, flags: '["seen"]' };
-          }
-        }
-        return email;
-      }),
-    }));
-
     try {
       await invoke("mark_as_read", { emailIds: ids });
-      // We don't need to refresh the whole list immediately here
-      // since the event listener will handle consistency eventually
-      // but the UI is already updated.
     } catch (error) {
       console.error("Failed to mark as read:", error);
-      // Revert on error if needed, but for flags, a background sync usually fixes it
     }
   },
 
   moveToTrash: async (ids) => {
-    // 1. Optimistic Update: remove from current list
-    const currentEmails = get().emails;
-    const currentSelectedIds = get().selectedIds;
-    const currentSelectedEmailId = get().selectedEmailId;
-
     set((state) => ({
-      emails: state.emails.filter((email) => !ids.includes(email.id)),
       selectedIds: new Set(
         Array.from(state.selectedIds).filter((id) => !ids.includes(id)),
       ),
@@ -403,23 +345,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       get().fetchAccountsAndFolders();
     } catch (error) {
       console.error("Failed to move to trash:", error);
-      // Revert if it failed
-      set({
-        emails: currentEmails,
-        selectedIds: currentSelectedIds,
-        selectedEmailId: currentSelectedEmailId,
-      });
     }
   },
 
   archiveEmails: async (ids) => {
-    // 1. Optimistic Update: remove from current list
-    const currentEmails = get().emails;
-    const currentSelectedIds = get().selectedIds;
-    const currentSelectedEmailId = get().selectedEmailId;
-
     set((state) => ({
-      emails: state.emails.filter((email) => !ids.includes(email.id)),
       selectedIds: new Set(
         Array.from(state.selectedIds).filter((id) => !ids.includes(id)),
       ),
@@ -435,23 +365,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       get().fetchAccountsAndFolders();
     } catch (error) {
       console.error("Failed to archive emails:", error);
-      // Revert if it failed
-      set({
-        emails: currentEmails,
-        selectedIds: currentSelectedIds,
-        selectedEmailId: currentSelectedEmailId,
-      });
     }
   },
 
   moveToInbox: async (ids) => {
-    // 1. Optimistic Update: remove from current list (assuming we are in a view where it should disappear, like Spam)
-    const currentEmails = get().emails;
-    const currentSelectedIds = get().selectedIds;
-    const currentSelectedEmailId = get().selectedEmailId;
-
     set((state) => ({
-      emails: state.emails.filter((email) => !ids.includes(email.id)),
       selectedIds: new Set(
         Array.from(state.selectedIds).filter((id) => !ids.includes(id)),
       ),
@@ -467,12 +385,6 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       get().fetchAccountsAndFolders();
     } catch (error) {
       console.error("Failed to move to inbox:", error);
-      // Revert if it failed
-      set({
-        emails: currentEmails,
-        selectedIds: currentSelectedIds,
-        selectedEmailId: currentSelectedEmailId,
-      });
     }
   },
 

@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet, useParams } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useCallback } from "react";
 import { z } from "zod";
 import { useEmailStore } from "@/lib/store";
 import { EmailListToolbar } from "./_inbox/-components/email-list-toolbar";
@@ -24,7 +24,6 @@ export function InboxLayout() {
   const searchParams = Route.useSearch();
   const { account_id, view, filter, search } = searchParams;
   const navigate = Route.useNavigate();
-  const [localSearch, setLocalSearch] = useState(search || "");
 
   // @ts-ignore - this might not be available yet but will be in child routes
   const { emailId } = useParams({ strict: false });
@@ -39,11 +38,7 @@ export function InboxLayout() {
   } = useEmails({ account_id, view, filter, search });
 
   const emails = useMemo(() => data?.pages.flat() || [], [data]);
-  
-  // Sync emails to store for selection logic
-  useEffect(() => {
-    useEmailStore.setState({ emails });
-  }, [emails]);
+  const emailIds = useMemo(() => emails.map(e => e.id), [emails]);
 
   const selectedIds = useEmailStore((state) => state.selectedIds);
   const toggleSelect = useEmailStore((state) => state.toggleSelect);
@@ -54,26 +49,23 @@ export function InboxLayout() {
   const archiveEmails = useEmailStore((state) => state.archiveEmails);
   const moveToInbox = useEmailStore((state) => state.moveToInbox);
 
+  const handleSelectRange = useCallback((id: number) => {
+    selectRange(id, emailIds);
+  }, [selectRange, emailIds]);
+
+  const handleToggleSelectAll = useCallback(() => {
+    toggleSelectAll(emailIds);
+  }, [toggleSelectAll, emailIds]);
+
+  const handleSearchDebounced = useCallback((value: string) => {
+    (navigate as any)({
+      search: { ...searchParams, search: value || undefined },
+    });
+  }, [navigate, searchParams]);
+
   const isAllSelected = emails.length > 0 && selectedIds.size === emails.length;
   const isSomeSelected =
     selectedIds.size > 0 && selectedIds.size < emails.length;
-
-  // Sync local search with URL search param
-  useEffect(() => {
-    setLocalSearch(search || "");
-  }, [search]);
-
-  // Debounce search update
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (localSearch !== (search || "")) {
-        (navigate as any)({
-          search: { ...searchParams, search: localSearch || undefined },
-        });
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [localSearch, navigate, search, searchParams]);
 
   const title = useMemo(() => {
     if (search) return "Search Results";
@@ -95,11 +87,11 @@ export function InboxLayout() {
         <EmailListToolbar
           isAllSelected={isAllSelected}
           isSomeSelected={isSomeSelected}
-          onToggleSelectAll={toggleSelectAll}
+          onToggleSelectAll={handleToggleSelectAll}
           title={title}
           emailCount={emails.length}
-          searchValue={localSearch}
-          onSearchChange={setLocalSearch}
+          initialSearchValue={search || ""}
+          onSearchDebounced={handleSearchDebounced}
         />
 
         {selectedIds.size > 0 && (
@@ -120,7 +112,7 @@ export function InboxLayout() {
           selectedIds={selectedIds}
           selectedEmailId={selectedEmailId}
           onToggleSelect={toggleSelect}
-          onSelectRange={selectRange}
+          onSelectRange={handleSelectRange}
           fetchNextPage={fetchNextPage}
           hasNextPage={hasNextPage}
         />
