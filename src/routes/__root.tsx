@@ -4,7 +4,6 @@ import {
   useLocation,
   useNavigate,
 } from "@tanstack/react-router";
-import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useEmailStore } from "@/lib/store";
@@ -100,7 +99,6 @@ const RootLayout = () => {
       <div className="min-h-screen bg-background">
         <Outlet />
         <Toaster />
-        <TanStackRouterDevtools />
       </div>
     );
   }
@@ -112,7 +110,6 @@ const RootLayout = () => {
         <Outlet />
       </SidebarInset>
       <Toaster />
-      <TanStackRouterDevtools />
     </SidebarProvider>
   );
 };
