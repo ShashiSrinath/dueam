@@ -630,17 +630,11 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         let manager = AccountManager::new(app_handle).await?;
         let account = manager.get_account_by_id(account.id().ok_or("Account ID missing before sync")?).await?;
 
-        match account {
-            Account::Google(google) => {
-                Self::sync_google_account(app_handle, &google).await?;
-            }
-        }
-        Ok(())
+        Self::sync_imap_account(app_handle, &account).await
     }
 
-    async fn sync_google_account(app_handle: &tauri::AppHandle<R>, google: &crate::email_backend::accounts::google::GoogleAccount) -> Result<(), String> {
-        info!("Syncing Google account: {}", google.email);
-        let account = Account::Google(google.clone());
+    async fn sync_imap_account(app_handle: &tauri::AppHandle<R>, account: &Account) -> Result<(), String> {
+        info!("Syncing IMAP account: {}", account.email());
         let account_id = account.id().ok_or("Account ID missing")?;
 
         let engine = app_handle.state::<SyncEngine<R>>();
@@ -667,12 +661,12 @@ impl<R: tauri::Runtime> SyncEngine<R> {
             };
 
             let mut client = context.client().await;
-            info!("Syncing revamped folder: {} as {:?} for {}", folder.name, role, google.email);
+            info!("Syncing revamped folder: {} as {:?} for {}", folder.name, role, account.email());
             let folder_data = client.select_mailbox(&folder.name).await.map_err(|e| {
                 error!("Failed to select mailbox {}: {}", folder.name, e);
                 e.to_string()
             })?;
-            Self::sync_folder(app_handle, &mut *client, &account, &folder.name, role, &folder_data).await?;
+            Self::sync_folder(app_handle, &mut *client, account, &folder.name, role, &folder_data).await?;
         }
 
         Ok(())

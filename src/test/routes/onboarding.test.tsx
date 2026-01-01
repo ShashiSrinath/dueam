@@ -63,9 +63,8 @@ describe("OnboardingComponent", () => {
   it("redirects if accounts exist", () => {
     useEmailStore.setState({ 
         accounts: [{ 
-            id: 1, 
             type: "google", 
-            data: { email: "test@example.com", name: "Test" } 
+            data: { id: 1, email: "test@example.com", name: "Test" } 
         }] 
     });
     

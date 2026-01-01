@@ -91,7 +91,7 @@ function RouteComponent() {
             </div>
             <div className="relative flex justify-center text-xs uppercase">
               <span className="bg-background px-2 text-muted-foreground">
-                Recommended
+                Email Providers
               </span>
             </div>
           </div>
@@ -101,6 +101,14 @@ function RouteComponent() {
             description="Connect your personal or workspace Google account."
             icon={Gmail}
             onClick={handleGoogleLogin}
+            disabled={isConnecting}
+          />
+
+          <AccountTypeCard
+            title="Other (IMAP)"
+            description="Custom server settings."
+            icon={Lock}
+            onClick={() => navigate({ to: "/accounts/new-imap" })}
             disabled={isConnecting}
           />
 
@@ -120,12 +128,6 @@ function RouteComponent() {
               title="Microsoft 365"
               description="Outlook, Hotmail, Live."
               icon={Mail}
-              onClick={() => {}}
-            />
-            <AccountTypeCard
-              title="Other (IMAP)"
-              description="Custom server settings."
-              icon={Lock}
               onClick={() => {}}
             />
           </div>

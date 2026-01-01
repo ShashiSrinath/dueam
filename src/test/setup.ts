@@ -99,7 +99,7 @@ Object.defineProperty(globalThis, 'IntersectionObserver', {
 });
 
 // Mock ResizeObserver
-const ResizeObserverMock = mock(function(callback: any) {
+const ResizeObserverMock = mock(function(_callback: any) {
   return {
     observe: mock(() => {}),
     unobserve: mock(() => {}),

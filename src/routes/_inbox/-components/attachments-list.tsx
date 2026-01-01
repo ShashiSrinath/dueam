@@ -3,9 +3,7 @@ import { Download, File, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Attachment } from "@/lib/store";
 import { save } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
-import { openPath } from "@tauri-apps/plugin-opener";
-import { tempDir, join, downloadDir } from "@tauri-apps/api/path";
+import { join, downloadDir } from "@tauri-apps/api/path";
 
 export function AttachmentsList({ attachments }: { attachments: Attachment[] }) {
   const downloadAttachment = async (e: React.MouseEvent, att: Attachment) => {

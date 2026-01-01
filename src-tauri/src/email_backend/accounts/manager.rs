@@ -1,12 +1,15 @@
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 use crate::email_backend::accounts::google::GoogleAccount;
+use crate::email_backend::accounts::microsoft::MicrosoftAccount;
+use crate::email_backend::accounts::imap_smtp::ImapSmtpAccount;
 use crate::utils::security::EncryptedStore;
 use std::path::PathBuf;
 use std::sync::Arc;
 use sqlx::sqlite::SqlitePool;
 use email::account::config::AccountConfig;
 use email::account::config::oauth2::OAuth2Config;
+use email::account::config::passwd::PasswordConfig;
 use email::imap::config::{ImapConfig, ImapAuthConfig};
 use email::smtp::config::{SmtpConfig, SmtpAuthConfig};
 use secret::Secret;
@@ -15,30 +18,40 @@ use secret::Secret;
 #[serde(tag = "type", content = "data")]
 pub enum Account {
     Google(GoogleAccount),
+    Microsoft(MicrosoftAccount),
+    ImapSmtp(ImapSmtpAccount),
 }
 
 impl Account {
     pub fn email(&self) -> &str {
         match self {
             Account::Google(a) => &a.email,
+            Account::Microsoft(a) => &a.email,
+            Account::ImapSmtp(a) => &a.email,
         }
     }
 
     pub fn id(&self) -> Option<i64> {
         match self {
             Account::Google(a) => a.id,
+            Account::Microsoft(a) => a.id,
+            Account::ImapSmtp(a) => a.id,
         }
     }
 
     pub fn set_id(&mut self, id: i64) {
         match self {
             Account::Google(a) => a.id = Some(id),
+            Account::Microsoft(a) => a.id = Some(id),
+            Account::ImapSmtp(a) => a.id = Some(id),
         }
     }
 
     pub fn account_type(&self) -> &str {
         match self {
             Account::Google(_) => "google",
+            Account::Microsoft(_) => "microsoft",
+            Account::ImapSmtp(_) => "imap_smtp",
         }
     }
 
@@ -47,6 +60,13 @@ impl Account {
             Account::Google(a) => {
                 a.access_token = None;
                 a.refresh_token = None;
+            }
+            Account::Microsoft(a) => {
+                a.access_token = None;
+                a.refresh_token = None;
+            }
+            Account::ImapSmtp(a) => {
+                a.password = None;
             }
         }
     }
@@ -89,6 +109,86 @@ impl Account {
                     login: google.email.clone(),
                     auth: SmtpAuthConfig::OAuth2(oauth2_config),
                     encryption: Some(email::tls::Encryption::StartTls(email::tls::Tls::default())),
+                    ..Default::default()
+                });
+
+                Ok((account_config, imap_config, smtp_config))
+            }
+            Account::Microsoft(microsoft) => {
+                let client_id = std::env::var("MICROSOFT_CLIENT_ID")
+                    .map_err(|_| "MICROSOFT_CLIENT_ID not found in environment".to_string())?;
+                let client_secret = std::env::var("MICROSOFT_CLIENT_SECRET")
+                    .map_err(|_| "MICROSOFT_CLIENT_SECRET not found in environment".to_string())?;
+
+                let oauth2_config = OAuth2Config {
+                    client_id,
+                    client_secret: Some(Secret::new_raw(client_secret)),
+                    auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize".into(),
+                    token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token".into(),
+                    access_token: microsoft.access_token.as_ref().map(|t| Secret::new_raw(t.clone())).unwrap_or_default(),
+                    refresh_token: microsoft.refresh_token.as_ref().map(|t| Secret::new_raw(t.clone())).unwrap_or_default(),
+                    ..Default::default()
+                };
+
+                let account_config = Arc::new(AccountConfig {
+                    name: microsoft.email.clone(),
+                    email: microsoft.email.clone(),
+                    ..Default::default()
+                });
+
+                let imap_config = Arc::new(ImapConfig {
+                    host: "outlook.office365.com".into(),
+                    port: 993,
+                    login: microsoft.email.clone(),
+                    auth: ImapAuthConfig::OAuth2(oauth2_config.clone()),
+                    ..Default::default()
+                });
+
+                let smtp_config = Arc::new(SmtpConfig {
+                    host: "smtp.office365.com".into(),
+                    port: 587,
+                    login: microsoft.email.clone(),
+                    auth: SmtpAuthConfig::OAuth2(oauth2_config),
+                    encryption: Some(email::tls::Encryption::StartTls(email::tls::Tls::default())),
+                    ..Default::default()
+                });
+
+                Ok((account_config, imap_config, smtp_config))
+            }
+            Account::ImapSmtp(imap_smtp) => {
+                let account_config = Arc::new(AccountConfig {
+                    name: imap_smtp.email.clone(),
+                    email: imap_smtp.email.clone(),
+                    ..Default::default()
+                });
+
+                let imap_encryption = match imap_smtp.imap_encryption.as_str() {
+                    "tls" => Some(email::tls::Encryption::Tls(email::tls::Tls::default())),
+                    "starttls" => Some(email::tls::Encryption::StartTls(email::tls::Tls::default())),
+                    _ => None,
+                };
+
+                let imap_config = Arc::new(ImapConfig {
+                    host: imap_smtp.imap_host.clone(),
+                    port: imap_smtp.imap_port,
+                    login: imap_smtp.email.clone(),
+                    encryption: imap_encryption,
+                    auth: ImapAuthConfig::Password(PasswordConfig(Secret::new_raw(imap_smtp.password.clone().unwrap_or_default()))),
+                    ..Default::default()
+                });
+
+                let smtp_encryption = match imap_smtp.smtp_encryption.as_str() {
+                    "tls" => Some(email::tls::Encryption::Tls(email::tls::Tls::default())),
+                    "starttls" => Some(email::tls::Encryption::StartTls(email::tls::Tls::default())),
+                    _ => None,
+                };
+
+                let smtp_config = Arc::new(SmtpConfig {
+                    host: imap_smtp.smtp_host.clone(),
+                    port: imap_smtp.smtp_port,
+                    login: imap_smtp.email.clone(),
+                    encryption: smtp_encryption,
+                    auth: SmtpAuthConfig::Password(PasswordConfig(Secret::new_raw(imap_smtp.password.clone().unwrap_or_default()))),
                     ..Default::default()
                 });
 
@@ -159,6 +259,15 @@ impl<R: tauri::Runtime> AccountManager<R> {
                         google.name = name;
                         google.picture = picture;
                     }
+                    Account::Microsoft(microsoft) => {
+                        microsoft.id = Some(id);
+                        microsoft.name = name;
+                        microsoft.picture = picture;
+                    }
+                    Account::ImapSmtp(imap_smtp) => {
+                        imap_smtp.id = Some(id);
+                        imap_smtp.name = name;
+                    }
                 }
             }
         }
@@ -215,6 +324,36 @@ impl<R: tauri::Runtime> AccountManager<R> {
                 
                 Ok(access_token_val)
             }
+            Account::Microsoft(microsoft) => {
+                let client_id = std::env::var("MICROSOFT_CLIENT_ID")
+                    .map_err(|_| "MICROSOFT_CLIENT_ID not found in environment".to_string())?;
+                let client_secret = std::env::var("MICROSOFT_CLIENT_SECRET")
+                    .map_err(|_| "MICROSOFT_CLIENT_SECRET not found in environment".to_string())?;
+
+                let oauth2_config = OAuth2Config {
+                    client_id,
+                    client_secret: Some(Secret::new_raw(client_secret)),
+                    auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize".into(),
+                    token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token".into(),
+                    access_token: microsoft.access_token.as_ref().map(|t| Secret::new_raw(t.clone())).unwrap_or_default(),
+                    refresh_token: microsoft.refresh_token.as_ref().map(|t| Secret::new_raw(t.clone())).unwrap_or_default(),
+                    ..Default::default()
+                };
+
+                let (access_token, new_refresh_token) = oauth2_config.refresh_access_token().await.map_err(|e| e.to_string())?;
+                
+                microsoft.access_token = Some(access_token.clone());
+                if let Some(new_refresh) = new_refresh_token {
+                    microsoft.refresh_token = Some(new_refresh);
+                }
+                
+                let access_token_val = access_token;
+                
+                self.save(&registry).await?;
+                
+                Ok(access_token_val)
+            }
+            Account::ImapSmtp(_) => Err("IMAP/SMTP accounts do not support token refresh".into()),
         }
     }
 
@@ -229,8 +368,16 @@ impl<R: tauri::Runtime> AccountManager<R> {
         )
         .bind(account.email())
         .bind(account.account_type())
-        .bind(match &account { Account::Google(a) => a.name.as_ref() })
-        .bind(match &account { Account::Google(a) => a.picture.as_ref() })
+        .bind(match &account {
+            Account::Google(a) => a.name.as_deref(),
+            Account::Microsoft(a) => a.name.as_deref(),
+            Account::ImapSmtp(a) => a.name.as_deref(),
+        })
+        .bind(match &account {
+            Account::Google(a) => a.picture.as_deref(),
+            Account::Microsoft(a) => a.picture.as_deref(),
+            Account::ImapSmtp(_) => None,
+        })
         .fetch_one(&*pool)
         .await
         .map_err(|e: sqlx::Error| e.to_string())?;

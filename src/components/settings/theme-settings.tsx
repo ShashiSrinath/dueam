@@ -2,7 +2,6 @@ import { useSettingsStore } from "@/lib/settings-store";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";

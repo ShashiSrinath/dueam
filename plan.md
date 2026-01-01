@@ -1,100 +1,66 @@
-# Dueam - Development Plan
+# Plan: Add IMAP/SMTP and Microsoft Account Support
 
-Dueam is a modern, high-performance desktop email client built with Tauri, Rust, and React. The core philosophy is to provide a seamless, unified experience for users managing multiple email accounts.
+This plan outlines the steps to add support for generic IMAP/SMTP accounts and Microsoft (Outlook/Office 365) accounts to the email client.
 
-## Core Objective
+## Phase 1: Backend Infrastructure
 
-Act as a desktop email client with **multiple inboxes in the same view** (Unified Inbox) support.
+### 1.1 Data Models
+- [ ] Create `src-tauri/src/email_backend/accounts/imap_smtp.rs`:
+    - Define `ImapSmtpAccount` struct: `id`, `email`, `name`, `imap_host`, `imap_port`, `imap_encryption`, `smtp_host`, `smtp_port`, `smtp_encryption`, `password`.
+- [ ] Create `src-tauri/src/email_backend/accounts/microsoft.rs`:
+    - Define `MicrosoftAccount` struct (similar to `GoogleAccount`).
+    - Define `MicrosoftOAuth2Config` for handling Microsoft-specific OAuth flow (URLs, scopes).
+- [ ] Update `Account` enum in `src-tauri/src/email_backend/accounts/manager.rs`:
+    - Add `ImapSmtp(ImapSmtpAccount)` and `Microsoft(MicrosoftAccount)` variants.
 
----
+### 1.2 Account Manager Updates
+- [ ] Update `Account` methods in `manager.rs`:
+    - `email()`, `id()`, `set_id()`, `account_type()`, `strip_secrets()`: Add support for new variants.
+    - `get_configs()`: Implement mapping for `ImapSmtp` and `Microsoft` to `email-lib` configurations.
+- [ ] Update `AccountManager::refresh_access_token`:
+    - Add logic for Microsoft OAuth token refresh.
+- [ ] Update `AccountManager::add_account`:
+    - Update SQL query to handle name/picture for new account types.
+- [ ] Update `AccountManager::load`:
+    - Update DB fetching to correctly populate new account fields.
 
-## Phase 1: Authentication & Account Foundation (Complete)
+### 1.3 Tauri Commands
+- [ ] In `src-tauri/src/email_backend/accounts/commands.rs`:
+    - Add `login_with_microsoft` command.
+    - Add `add_imap_smtp_account` command.
 
-- [x] **Complete Google OAuth Flow**: Finalize the Rust-side OAuth2 handshake and token exchange.
-- [x] **Secure Storage**: Implement secure storage for Refresh Tokens (using `keyring` and Tauri's Stronghold).
-- [x] **Multi-Account Manager**: Create a backend registry to manage multiple configured accounts (IMAP/SMTP/OAuth).
-- [x] **Account Management UI**: Allow users to add, edit, and remove multiple Google/IMAP accounts.
+## Phase 2: Frontend UI
 
-## Phase 2: Data Architecture & Sync (Complete)
+### 2.1 Onboarding & Account Selection
+- [ ] Update `src/routes/accounts/new.tsx`:
+    - Enable "Microsoft 365" and "Other (IMAP)" cards.
+    - Wire up "Microsoft 365" to `login_with_microsoft`.
+    - Wire up "Other (IMAP)" to navigate to a new configuration form.
 
-- [x] **Local Database (SQLite)**: Set up a local cache using SQLite to ensure the UI remains snappy even with thousands of emails.
-- [x] **Sync Engine**:
-  - [x] Implement background IMAP fetching using `email-lib`.
-  - [x] IDLE support for real-time push notifications/updates.
-  - [x] Incremental sync to minimize bandwidth.
-- [x] **Unified Schema**: Design a database schema that indexes emails from different providers into a single searchable table.
+### 2.2 IMAP/SMTP Configuration Form
+- [ ] Create `src/routes/accounts/new-imap.tsx` (or similar):
+    - Build a form for all IMAP and SMTP server details.
+    - Add "Connect" button that invokes `add_imap_smtp_account`.
+    - Handle loading states and connection errors.
 
-## Phase 3: The Unified Inbox UI (Complete)
+### 2.3 Microsoft OAuth Integration
+- [ ] Handle `microsoft-account-added` and `microsoft-account-error` events in the frontend (similar to Google).
 
-- [x] **Sidebar Navigation**:
-  - [x] "Unified Inbox" (All accounts).
-  - [x] Individual account folders (fetched dynamically).
-  - [x] Smart Folders (Unread, Flagged, etc.).
-- [x] **Message List View**:
-  - [x] Virtual scrolling for high performance.
-  - [x] Multi-select actions (Delete, Archive, Mark as Read).
-  - [x] Account indicators (visual cues for which inbox an email belongs to).
-  - [x] Unread status indicators (Blue dot, bold text).
-- [x] **Email Detail View**:
-  - [x] Sanitized HTML rendering.
-  - [x] Attachment handling.
-  - [x] Automatic "Mark as Read" on selection.
+## Phase 3: Integration & Sync
 
-## Phase 4: Sending & Composition
+### 3.1 Sync Engine
+- [ ] Verify `SyncEngine` correctly triggers for the new account types. Since it uses `Account` enum and `get_configs()`, it should work if Phase 1 is done correctly.
 
-- [x] **SMTP Integration**: Implement outgoing mail logic for different providers.
-- [x] **Rich Text Editor**: A modern editor with support for formatting, signatures, and attachments.
-- [x] **Drafts Management**: Local autosave and cross-provider draft syncing.
+### 3.2 Error Handling
+- [ ] Improve error reporting for connection failures in the UI.
 
-## Phase 5: Search & Performance (Complete)
+## Phase 4: Verification
 
-- [x] **Full-Text Search**: Leverage SQLite FTS5 for lightning-fast searching across all inboxes.
-- [x] **Asset Optimization**: Lazy loading for images and attachments.
-- [x] **Deep System Integration**: Native notifications, keyboard shortcuts, and tray icons.
-- [x] **Bug Fixes**: Resolved SQLite syntax error in unified counts and improved IMAP error handling.
+### 4.1 Automated Testing
+- [ ] Add unit tests in `manager.rs` for new account variants.
+- [ ] Test `get_configs()` output for various IMAP/SMTP configurations.
 
-## Phase 6: Settings & Personalization (Complete)
-
-- [x] **Settings UI**:
-  - [x] Create a dedicated Settings page accessible via the sidebar.
-  - [x] Move "Add Account" and account management from the sidebar to the Settings UI.
-  - [x] Implement a tabbed interface for different settings categories (Accounts, Appearance, General).
-- [x] **Advanced Theming & Appearance**:
-  - [x] Multi-theme support: Go beyond light/dark with predefined color schemes (e.g., Nord, Rose Pine, Dracula).
-  - [x] Custom Accent Colors: Allow users to choose their primary brand color.
-  - [x] UI Density: Options for "Compact", "Comfortable", and "Spacious" layouts.
-  - [x] Font Customization: Selection of UI fonts and font sizes.
-  - [x] Support system theme synchronization.
-  - [x] Ensure theme persistence across app restarts.
-- [x] **Persistence**:
-  - [x] Create a robust mechanism for saving user preferences.
-  - [x] Store all settings and preferences in the existing SQLite database to ensure centralized, reliable persistence.
-
-## Phase 7: Sender Intelligence & Identity Enrichment
-
-- [ ] **Advanced Enrichment Engine (Rust)**:
-  - [ ] **Social Discovery**: Implement lookups for social handles (GitHub, LinkedIn, Twitter/X) via common identity patterns and public APIs.
-  - [ ] **Professional Metadata**: Extract job titles, company names, and bios from email signatures and public professional profiles.
-  - [ ] **Domain Intelligence**:
-    - [ ] **Company Profile**: Fetch company descriptions and headquarters locations for corporate domains.
-    - [ ] **Aggregation**: Automatically group senders by domain to provide "Company Views" (e.g., see all threads from `stripe.com`).
-  - [ ] **Multi-Tier Avatar System**: (Retained from previous plan) BIMI, Favicons, Gravatar, and Libravatar.
-- [ ] **Contextual Insights UI**:
-  - [ ] **Sender Sidebar**: Create a collapsible side panel in the `EmailDetailView` showing:
-    - [ ] Full profile (Avatar, Name, Title, Bio, Location).
-    - [ ] Social links (clickable icons).
-    - [ ] "Recent Threads" from this specific sender across all accounts.
-    - [ ] Shared attachments history.
-  - [ ] **Identity Badges**: Visual indicators for "New Sender," "Known Contact," or "Verified Brand."
-- [ ] **Privacy-First Architecture**:
-  - [ ] **Opt-in Discovery**: Allow users to toggle external identity lookups to maintain privacy.
-  - [ ] **Local-First Cache**: Strictly cache all enriched data in SQLite; ensure no data is sent to 3rd party servers except for the direct resolution request.
-
----
-
-## Tech Stack
-
-- **Frontend**: React 19, TanStack Router, Tailwind CSS 4, Radix UI.
-- **Backend**: Rust, Tauri 2.
-- **Email Protocol**: `email-lib`, `imap-client` (Rust).
-- **Database**: SQLite.
+### 4.2 Manual Testing
+- [ ] Test adding a Microsoft account (Hotmail/Outlook).
+- [ ] Test adding an IMAP/SMTP account (e.g., iCloud, Fastmail, or a private server).
+- [ ] Verify that emails are fetched and can be sent for all account types.

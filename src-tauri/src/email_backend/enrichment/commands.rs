@@ -136,6 +136,13 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
                         }
                         own_info.insert(g.email.to_lowercase(), (g.name.clone(), g.picture.clone()));
                     }
+                    crate::email_backend::accounts::manager::Account::Microsoft(m) => {
+                        // Microsoft also uses access tokens, could be used for People API in future
+                        own_info.insert(m.email.to_lowercase(), (m.name.clone(), m.picture.clone()));
+                    }
+                    crate::email_backend::accounts::manager::Account::ImapSmtp(i) => {
+                        own_info.insert(i.email.to_lowercase(), (i.name.clone(), None));
+                    }
                 }
             }
         }

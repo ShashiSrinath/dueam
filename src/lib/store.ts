@@ -3,12 +3,18 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 export type Account = {
-  type: "google";
+  type: "google" | "microsoft" | "imap_smtp";
   data: {
     id?: number;
     email: string;
     name?: string;
     picture?: string;
+    imap_host?: string;
+    imap_port?: number;
+    imap_encryption?: string;
+    smtp_host?: string;
+    smtp_port?: number;
+    smtp_encryption?: string;
   };
 };
 

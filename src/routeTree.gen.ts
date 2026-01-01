@@ -13,6 +13,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as InboxRouteImport } from './routes/_inbox'
 import { Route as InboxIndexRouteImport } from './routes/_inbox/index'
+import { Route as AccountsNewImapRouteImport } from './routes/accounts/new-imap'
 import { Route as AccountsNewRouteImport } from './routes/accounts/new'
 import { Route as InboxEmailEmailIdRouteImport } from './routes/_inbox/email.$emailId'
 
@@ -35,6 +36,11 @@ const InboxIndexRoute = InboxIndexRouteImport.update({
   path: '/',
   getParentRoute: () => InboxRoute,
 } as any)
+const AccountsNewImapRoute = AccountsNewImapRouteImport.update({
+  id: '/accounts/new-imap',
+  path: '/accounts/new-imap',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AccountsNewRoute = AccountsNewRouteImport.update({
   id: '/accounts/new',
   path: '/accounts/new',
@@ -50,6 +56,7 @@ export interface FileRoutesByFullPath {
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
   '/accounts/new': typeof AccountsNewRoute
+  '/accounts/new-imap': typeof AccountsNewImapRoute
   '/': typeof InboxIndexRoute
   '/email/$emailId': typeof InboxEmailEmailIdRoute
 }
@@ -57,6 +64,7 @@ export interface FileRoutesByTo {
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
   '/accounts/new': typeof AccountsNewRoute
+  '/accounts/new-imap': typeof AccountsNewImapRoute
   '/': typeof InboxIndexRoute
   '/email/$emailId': typeof InboxEmailEmailIdRoute
 }
@@ -66,6 +74,7 @@ export interface FileRoutesById {
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
   '/accounts/new': typeof AccountsNewRoute
+  '/accounts/new-imap': typeof AccountsNewImapRoute
   '/_inbox/': typeof InboxIndexRoute
   '/_inbox/email/$emailId': typeof InboxEmailEmailIdRoute
 }
@@ -75,16 +84,24 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/settings'
     | '/accounts/new'
+    | '/accounts/new-imap'
     | '/'
     | '/email/$emailId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/onboarding' | '/settings' | '/accounts/new' | '/' | '/email/$emailId'
+  to:
+    | '/onboarding'
+    | '/settings'
+    | '/accounts/new'
+    | '/accounts/new-imap'
+    | '/'
+    | '/email/$emailId'
   id:
     | '__root__'
     | '/_inbox'
     | '/onboarding'
     | '/settings'
     | '/accounts/new'
+    | '/accounts/new-imap'
     | '/_inbox/'
     | '/_inbox/email/$emailId'
   fileRoutesById: FileRoutesById
@@ -94,6 +111,7 @@ export interface RootRouteChildren {
   OnboardingRoute: typeof OnboardingRoute
   SettingsRoute: typeof SettingsRoute
   AccountsNewRoute: typeof AccountsNewRoute
+  AccountsNewImapRoute: typeof AccountsNewImapRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -125,6 +143,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof InboxIndexRouteImport
       parentRoute: typeof InboxRoute
+    }
+    '/accounts/new-imap': {
+      id: '/accounts/new-imap'
+      path: '/accounts/new-imap'
+      fullPath: '/accounts/new-imap'
+      preLoaderRoute: typeof AccountsNewImapRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/accounts/new': {
       id: '/accounts/new'
@@ -160,6 +185,7 @@ const rootRouteChildren: RootRouteChildren = {
   OnboardingRoute: OnboardingRoute,
   SettingsRoute: SettingsRoute,
   AccountsNewRoute: AccountsNewRoute,
+  AccountsNewImapRoute: AccountsNewImapRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
