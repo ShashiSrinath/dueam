@@ -238,12 +238,26 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         ai_enabled.0 == "true" && ai_summarization_enabled.0 == "true"
     }
 
+    async fn is_notifications_enabled(app_handle: &tauri::AppHandle<R>) -> bool {
+        let pool = app_handle.state::<SqlitePool>();
+        let notifications_enabled: (String,) = sqlx::query_as("SELECT value FROM settings WHERE key = 'notificationsEnabled'")
+            .fetch_one(&*pool)
+            .await
+            .unwrap_or(("true".to_string(),));
+
+        notifications_enabled.0 == "true"
+    }
+
     async fn handle_notification(
         app_handle: tauri::AppHandle<R>,
         email_id: i64,
         subject: String,
         sender: String,
     ) {
+        if !Self::is_notifications_enabled(&app_handle).await {
+            return;
+        }
+
         if !Self::is_ai_summary_enabled(&app_handle).await {
             let _ = app_handle.notification()
                 .builder()
@@ -457,11 +471,13 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         let account_id = account.id().ok_or("Account ID missing")?;
         let pool = app_handle.state::<SqlitePool>();
 
-        let dev_mode = std::env::var("DUEAM_DEV_MODE")
-            .map(|v| v == "true")
-            .unwrap_or(false);
+        let sync_months_setting: (String,) = sqlx::query_as("SELECT value FROM settings WHERE key = 'syncMonths'")
+            .fetch_one(&*pool)
+            .await
+            .unwrap_or(("3".to_string(),));
+        let sync_months = sync_months_setting.0.parse::<i32>().unwrap_or(3);
 
-        info!("Syncing folder {} for {}. Role: {:?}. DevMode: {}", folder_name, account.email(), role, dev_mode);
+        info!("Syncing folder {} for {}. Role: {:?}. SyncMonths: {}", folder_name, account.email(), role, sync_months);
 
         let current_uid_validity = folder_data.uid_validity.map(|u: NonZeroU32| u.get() as i64).unwrap_or(0);
         let current_uid_next = folder_data.uid_next.map(|u: NonZeroU32| u.get() as i64).unwrap_or(0);
@@ -534,11 +550,6 @@ impl<R: tauri::Runtime> SyncEngine<R> {
             let mut synced_count = 0;
 
             while end > 0 {
-                if dev_mode && synced_count >= MAX_SYNC_MESSAGES_PER_FOLDER {
-                    info!("Hard limit of {} reached for folder {} in DevMode. Stopping sync.", MAX_SYNC_MESSAGES_PER_FOLDER, folder_name);
-                    break;
-                }
-
                 let start = if end > SYNC_BATCH_SIZE { end - SYNC_BATCH_SIZE + 1 } else { 1 };
                 info!("Fetching envelopes sequence {}:{} for folder {}", start, end, folder_name);
 
@@ -585,11 +596,6 @@ impl<R: tauri::Runtime> SyncEngine<R> {
             })?;
 
             if !envelopes.is_empty() {
-                if dev_mode && envelopes.len() > MAX_SYNC_MESSAGES_PER_FOLDER as usize {
-                    info!("Limiting incremental sync to {} messages in DevMode", MAX_SYNC_MESSAGES_PER_FOLDER);
-                    envelopes.truncate(MAX_SYNC_MESSAGES_PER_FOLDER as usize);
-                }
-
                 info!("Fetched {} new envelopes incrementally for folder {}", envelopes.len(), folder_name);
                 let _saved_ids = match Self::save_envelopes(app_handle, account_id, folder_id, envelopes, true).await {
                     Ok(ids) => ids,

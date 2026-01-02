@@ -22,6 +22,9 @@ import { Trash2, Plus, ArrowLeft } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { AiSettings } from "@/components/settings/ai-settings";
 import { ThemeSettings } from "@/components/settings/theme-settings";
+import { Switch } from "@/components/ui/switch";
+import { useSettingsStore } from "@/lib/settings-store";
+import { SyncSettings } from "@/components/settings/sync-settings";
 
 export const Route = createFileRoute("/settings")({
   validateSearch: (search: Record<string, unknown>) => {
@@ -36,6 +39,7 @@ function SettingsPage() {
   const { tab } = useSearch({ from: "/settings" });
   const navigate = useNavigate();
   const { accounts, fetchAccountsAndFolders } = useEmailStore();
+  const { settings, updateSetting } = useSettingsStore();
 
   const handleRemoveAccount = async (index: number) => {
     try {
@@ -115,10 +119,17 @@ function SettingsPage() {
                       Show notifications for new emails.
                     </p>
                   </div>
-                  {/* Switch component would go here */}
+                  <Switch
+                    checked={settings.notificationsEnabled}
+                    onCheckedChange={(checked) =>
+                      updateSetting("notificationsEnabled", checked)
+                    }
+                  />
                 </div>
               </CardContent>
             </Card>
+
+            <SyncSettings />
           </TabsContent>
 
           <TabsContent value="appearance" className="space-y-6">

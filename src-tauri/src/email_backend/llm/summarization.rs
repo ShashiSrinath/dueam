@@ -10,12 +10,12 @@ pub async fn summarize_email_with_ai<R: tauri::Runtime>(
     force: bool,
 ) -> Result<String, String> {
     debug!("Starting AI summarization for email: {} (force: {})", email_id, force);
-    
+
     let pool = app_handle.state::<SqlitePool>();
     let trimmed_body = body_text.trim();
 
     // 1. Skip if body text is very small (less than 150 characters is usually not worth summarizing)
-    if trimmed_body.len() < 150 {
+    if trimmed_body.len() < 30 {
         debug!("Skipping summarization for email {}: body text too small ({} chars)", email_id, trimmed_body.len());
         return Ok("".to_string());
     }
@@ -33,7 +33,7 @@ pub async fn summarize_email_with_ai<R: tauri::Runtime>(
             "viewing this email as a webpage",
             "enable images to see this email",
         ];
-        
+
         if image_indicators.iter().any(|&ind| lower_body.contains(ind)) {
              let has_images: bool = sqlx::query_scalar::<_, i32>("SELECT 1 FROM attachments WHERE email_id = ? AND mime_type LIKE 'image/%' LIMIT 1")
                 .bind(email_id)
@@ -41,7 +41,7 @@ pub async fn summarize_email_with_ai<R: tauri::Runtime>(
                 .await
                 .unwrap_or(None)
                 .is_some();
-                
+
              if has_images {
                  debug!("Skipping summarization for email {}: detected as image-only content", email_id);
                  return Ok("".to_string());
@@ -62,12 +62,12 @@ pub async fn summarize_email_with_ai<R: tauri::Runtime>(
             return Ok(s);
         }
     }
-    
+
     let rows: Vec<(String, String)> = sqlx::query_as::<_, (String, String)>("SELECT key, value FROM settings WHERE key IN ('aiApiKey', 'aiBaseUrl', 'aiModel')")
         .fetch_all(&*pool)
         .await
         .map_err(|e| e.to_string())?;
-        
+
     let mut api_key = String::new();
     let mut base_url = String::from("https://api.openai.com/v1");
     let mut model = String::new();
@@ -132,7 +132,7 @@ Just the summary."#;
     }
 
     let response_json: Value = resp.json().await.map_err(|e| format!("Failed to parse response JSON: {}", e))?;
-    
+
     let summary = response_json["choices"][0]["message"]["content"]
         .as_str()
         .ok_or_else(|| format!("Unexpected AI response structure: {:?}", response_json))?
@@ -152,16 +152,16 @@ Just the summary."#;
 fn is_valid_summary(summary: &str) -> bool {
     let s = summary.trim();
     if s.is_empty() { return false; }
-    
+
     // Too short usually means nonsense or "I don't know"
-    if s.len() < 10 { return false; } 
-    
+    if s.len() < 10 { return false; }
+
     // Summaries shouldn't be questions
     if s.ends_with('?') { return false; }
-    
+
     // Check for common failure patterns or "chatty" responses from dumber models
     let lower = s.to_lowercase();
-    
+
     let failure_patterns = [
         "i cannot summarize",
         "i'm sorry",

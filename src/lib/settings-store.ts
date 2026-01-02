@@ -22,6 +22,8 @@ export interface Settings {
   aiModel: string;
   aiSenderEnrichmentEnabled: boolean;
   aiSummarizationEnabled: boolean;
+  notificationsEnabled: boolean;
+  syncMonths: number;
 }
 
 interface SettingsState {
@@ -47,6 +49,8 @@ const defaultSettings: Settings = {
   aiModel: "",
   aiSenderEnrichmentEnabled: true,
   aiSummarizationEnabled: false,
+  notificationsEnabled: true,
+  syncMonths: 3,
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({

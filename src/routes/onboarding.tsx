@@ -12,13 +12,14 @@ import { useEmailStore } from "@/lib/store";
 import { useEffect, useState } from "react";
 import { ThemeSettings } from "@/components/settings/theme-settings";
 import { AiSettings } from "@/components/settings/ai-settings";
+import { SyncSettings } from "@/components/settings/sync-settings";
 import { Progress } from "@/components/ui/progress";
 
 export const Route = createFileRoute("/onboarding")({
   component: OnboardingComponent,
 });
 
-const STEPS = ["Welcome", "Appearance", "AI Intelligence", "Connect"];
+const STEPS = ["Welcome", "Appearance", "AI Intelligence", "Sync Settings", "Connect"];
 
 export function OnboardingComponent() {
   const navigate = useNavigate();
@@ -143,6 +144,20 @@ export function OnboardingComponent() {
           )}
 
           {currentStep === 3 && (
+            <div className="space-y-6 text-left animate-in fade-in slide-in-from-right-8 duration-300">
+              <div className="space-y-2">
+                <h2 className="text-3xl font-bold tracking-tight">
+                  Choose your sync depth
+                </h2>
+                <p className="text-muted-foreground">
+                  Select how much email content you want to keep offline.
+                </p>
+              </div>
+              <SyncSettings />
+            </div>
+          )}
+
+          {currentStep === 4 && (
             <div className="text-center space-y-8 animate-in fade-in slide-in-from-right-8 duration-300">
               <div className="space-y-4">
                 <div className="bg-primary/10 w-20 h-20 rounded-full flex items-center justify-center mx-auto">

@@ -187,16 +187,28 @@ impl<R: tauri::Runtime> SyncWorker<R> {
 
     async fn index_pending_emails(app_handle: &tauri::AppHandle<R>) -> Result<(), String> {
         let pool = app_handle.state::<SqlitePool>();
-        
-        let pending_emails: Vec<(i64, i64, String, String)> = sqlx::query_as(
-            "SELECT e.id, e.account_id, e.remote_id, f.path 
-             FROM emails e 
-             JOIN folders f ON e.folder_id = f.id 
-             WHERE e.body_text IS NULL AND f.role != 'trash' AND f.role != 'spam'\n             ORDER BY e.date DESC LIMIT 20"
-        )
-        .fetch_all(&*pool)
-        .await
-        .map_err(|e| e.to_string())?;
+
+        let sync_months_setting: (String,) = sqlx::query_as("SELECT value FROM settings WHERE key = 'syncMonths'")
+            .fetch_one(&*pool)
+            .await
+            .unwrap_or(("3".to_string(),));
+        let sync_months = sync_months_setting.0.parse::<i32>().unwrap_or(3);
+
+        let mut query = "SELECT e.id, e.account_id, e.remote_id, f.path
+             FROM emails e
+             JOIN folders f ON e.folder_id = f.id
+             WHERE e.body_text IS NULL AND f.role != 'trash' AND f.role != 'spam'".to_string();
+
+        if sync_months > 0 {
+            query.push_str(&format!(" AND datetime(e.date) > datetime('now', '-{} months')", sync_months));
+        }
+
+        query.push_str(" ORDER BY e.date DESC LIMIT 20");
+
+        let pending_emails: Vec<(i64, i64, String, String)> = sqlx::query_as(&query)
+            .fetch_all(&*pool)
+            .await
+            .map_err(|e| e.to_string())?;
 
         if pending_emails.is_empty() {
             return Ok(());
