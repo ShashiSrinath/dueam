@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useSearch } from "@tanstack/react-router";
 import { format, isToday, isYesterday, isThisYear } from "date-fns";
 import { Paperclip, Check, Reply, Forward, Sparkles } from "lucide-react";
 import { useMemo, memo, useCallback } from "react";
@@ -34,6 +34,8 @@ export const EmailListItem = memo(function EmailListItem({
 }: EmailListItemProps) {
   const isDraft = email.folder_id === -1;
   const setComposer = useEmailStore(state => state.setComposer);
+  const search = useSearch({ strict: false }) as any;
+  const isSentOrDraft = search.view === "sent" || search.view === "drafts";
 
   // Granular store subscriptions
   const account = useEmailStore(state => state.accountsMap[email.account_id]);
@@ -135,7 +137,7 @@ export const EmailListItem = memo(function EmailListItem({
               "truncate text-[14px] transition-colors",
               isUnread ? "font-bold text-foreground" : "font-semibold text-muted-foreground group-hover:text-foreground"
             )}>
-              {email.sender_name || email.sender_address}
+              {isSentOrDraft ? (email.recipient_to || email.sender_address) : (email.sender_name || email.sender_address)}
             </span>
 
             {email.thread_count && email.thread_count > 1 && (

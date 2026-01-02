@@ -28,6 +28,7 @@ export function AppSidebar() {
   // Granular selectors to avoid re-rendering the whole sidebar on every store change
   const primaryCount = useEmailStore((state) => state.unifiedCounts.primary);
   const spamCount = useEmailStore((state) => state.unifiedCounts.spam);
+  const draftsCount = useEmailStore((state) => state.unifiedCounts.drafts);
   const composerOpen = useEmailStore((state) => state.composer.open);
   const composerData = useEmailStore((state) => state.composer); // We need this for the composer props
   const setComposer = useEmailStore((state) => state.setComposer);
@@ -135,6 +136,11 @@ export function AppSidebar() {
                   >
                     <FilePen className="w-4 h-4" />
                     <span>Drafts</span>
+                    {draftsCount > 0 && (
+                      <span className="ml-auto text-[10px] bg-muted-foreground/20 text-muted-foreground px-1.5 rounded-full font-bold">
+                        {draftsCount}
+                      </span>
+                    )}
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

@@ -658,6 +658,8 @@ impl<R: tauri::Runtime> SyncEngine<R> {
                 Some("inbox".to_string())
             } else if folder.is_sent() {
                 Some("sent".to_string())
+            } else if folder.is_drafts() || name_lower.contains("drafts") {
+                Some("drafts".to_string())
             } else if name_lower.contains("spam") || name_lower.contains("junk") {
                 Some("spam".to_string())
             } else if name_lower.contains("trash") || name_lower.contains("bin") || name_lower.contains("deleted") {

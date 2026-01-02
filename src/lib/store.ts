@@ -96,6 +96,7 @@ interface UnifiedCounts {
   primary: number;
   sent: number;
   spam: number;
+  drafts: number;
 }
 
 interface EmailState {
@@ -158,7 +159,7 @@ const initialState: Pick<
   accounts: [],
   accountsMap: {},
   accountFolders: {},
-  unifiedCounts: { primary: 0, sent: 0, spam: 0 },
+  unifiedCounts: { primary: 0, sent: 0, spam: 0, drafts: 0 },
   selectedEmailId: null,
   selectedIds: new Set<number>(),
   composer: {
@@ -224,12 +225,14 @@ export const useEmailStore = create<EmailState>((set, get) => ({
       const current = get().unifiedCounts;
       if (current.primary !== (counts.primary || 0) || 
           current.sent !== (counts.sent || 0) || 
-          current.spam !== (counts.spam || 0)) {
+          current.spam !== (counts.spam || 0) ||
+          current.drafts !== (counts.drafts || 0)) {
         set({
           unifiedCounts: {
             primary: counts.primary || 0,
             sent: counts.sent || 0,
             spam: counts.spam || 0,
+            drafts: counts.drafts || 0,
           },
         });
       }

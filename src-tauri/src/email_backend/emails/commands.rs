@@ -78,6 +78,7 @@ pub struct UnifiedCounts {
     pub primary: i32,
     pub sent: i32,
     pub spam: i32,
+    pub drafts: i32,
 }
 
 #[tauri::command]
@@ -103,13 +104,26 @@ pub async fn get_emails<R: tauri::Runtime>(
     
     let mut query_builder: sqlx::QueryBuilder<sqlx::Sqlite> = sqlx::QueryBuilder::new(
         "WITH unique_messages AS (
-            SELECT e.*, f.role as folder_role,
-            ROW_NUMBER() OVER (
-                PARTITION BY e.account_id, e.message_id 
-                ORDER BY CASE WHEN f.role = 'inbox' THEN 0 WHEN f.role = 'sent' THEN 1 ELSE 2 END, e.date DESC
-            ) as msg_rn
+            SELECT 
+                e.id, e.account_id, e.folder_id, e.remote_id, e.message_id, e.thread_id, 
+                e.in_reply_to, e.references_header, e.subject, e.normalized_subject, 
+                e.sender_name, e.sender_address, e.recipient_to, e.date, e.flags, 
+                e.snippet, e.summary, e.has_attachments, f.role as folder_role,
+                ROW_NUMBER() OVER (
+                    PARTITION BY e.account_id, e.message_id 
+                    ORDER BY CASE WHEN f.role = 'inbox' THEN 0 WHEN f.role = 'sent' THEN 1 ELSE 2 END, e.date DESC
+                ) as msg_rn
             FROM emails e
             JOIN folders f ON e.folder_id = f.id
+            UNION ALL
+            SELECT 
+                -d.id as id, d.account_id, -1 as folder_id, 'local-draft-' || d.id as remote_id, NULL as message_id, NULL as thread_id, 
+                NULL as in_reply_to, NULL as references_header, d.subject, LOWER(COALESCE(d.subject, '')) as normalized_subject, 
+                NULL as sender_name, COALESCE(d.to_address, '(No Recipient)') as sender_address, d.to_address as recipient_to, strftime('%Y-%m-%dT%H:%M:%SZ', d.updated_at) as date, '[]' as flags, 
+                d.body_html as snippet, NULL as summary, EXISTS(SELECT 1 FROM attachments WHERE draft_id = d.id) as has_attachments, 
+                'drafts' as folder_role,
+                1 as msg_rn
+            FROM drafts d
          ),
           latest_threads AS (
             SELECT *,
@@ -139,17 +153,33 @@ pub async fn get_emails<R: tauri::Runtime>(
     }
 
     if let Some(v) = view {
-        if !has_where { query_builder.push(" WHERE "); has_where = true; } else { query_builder.push(" AND "); }
         match v.as_str() {
-            "primary" => query_builder.push(" e.folder_role = 'inbox'"),
-            "spam" => query_builder.push(" e.folder_role = 'spam'"),
-            "sent" => query_builder.push(" e.folder_role = 'sent'"),
-            _ => &mut query_builder,
+            "primary" => {
+                query_builder.push(" AND e.folder_role = 'inbox'");
+            }
+            "spam" => {
+                query_builder.push(" AND e.folder_role = 'spam'");
+            }
+            "sent" => {
+                query_builder.push(" AND e.folder_role = 'sent'");
+            }
+            "drafts" => {
+                query_builder.push(" AND e.folder_role = 'drafts'");
+            }
+            "trash" => {
+                query_builder.push(" AND e.folder_role = 'trash'");
+            }
+            "archive" => {
+                query_builder.push(" AND e.folder_role = 'archive'");
+            }
+            "others" => {
+                query_builder.push(" AND (e.folder_role IS NULL OR e.folder_role = '' OR e.folder_role NOT IN ('inbox', 'spam', 'sent', 'drafts', 'trash', 'archive'))");
+            }
+            _ => {}
         };
     } else {
         // Default to primary if no view specified
-        if !has_where { query_builder.push(" WHERE "); has_where = true; } else { query_builder.push(" AND "); }
-        query_builder.push(" e.folder_role = 'inbox'");
+        query_builder.push(" AND e.folder_role = 'inbox'");
     }
 
     if let Some(f) = filter {
@@ -189,21 +219,28 @@ pub async fn get_emails<R: tauri::Runtime>(
 pub async fn get_unified_counts<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>) -> Result<UnifiedCounts, String> {
     let pool = app_handle.state::<SqlitePool>();
     
-    let row: (i32, i32, i32) = sqlx::query_as(
+    let row: (i32, i32, i32, i32) = sqlx::query_as(
         "SELECT 
             SUM(CASE WHEN role = 'inbox' THEN unread_count ELSE 0 END) as primary_count,
             SUM(CASE WHEN role = 'sent' THEN total_count ELSE 0 END) as sent_count,
-            SUM(CASE WHEN role = 'spam' THEN unread_count ELSE 0 END) as spam_count
+            SUM(CASE WHEN role = 'spam' THEN unread_count ELSE 0 END) as spam_count,
+            SUM(CASE WHEN role = 'drafts' THEN total_count ELSE 0 END) as drafts_count
          FROM folders"
     )
     .fetch_one(&*pool)
     .await
     .map_err(|e| e.to_string())?;
 
+    let local_drafts_count: (i32,) = sqlx::query_as("SELECT COUNT(*) FROM drafts")
+        .fetch_one(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
     Ok(UnifiedCounts {
         primary: row.0,
         sent: row.1,
         spam: row.2,
+        drafts: row.3 + local_drafts_count.0,
     })
 }
 
@@ -585,13 +622,14 @@ pub async fn save_draft<R: tauri::Runtime>(
     let pool = app_handle.state::<SqlitePool>();
     
     let draft_id = if let Some(draft_id) = id {
+        let actual_id = draft_id.abs();
         sqlx::query("UPDATE drafts SET to_address = ?, cc_address = ?, bcc_address = ?, subject = ?, body_html = ? WHERE id = ?")
             .bind(to)
             .bind(cc)
             .bind(bcc)
             .bind(subject)
             .bind(body_html)
-            .bind(draft_id)
+            .bind(actual_id)
             .execute(&*pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -607,14 +645,16 @@ pub async fn save_draft<R: tauri::Runtime>(
             .fetch_one(&*pool)
             .await
             .map_err(|e| e.to_string())?;
-        row.0
+        -row.0
     };
+
+    let actual_id = draft_id.abs();
 
     // Handle attachments
     // For now, we only support copying existing attachments (from forwarded emails)
     // We clear existing draft attachments and re-add them to keep it simple
     sqlx::query("DELETE FROM attachments WHERE draft_id = ?")
-        .bind(draft_id)
+        .bind(actual_id)
         .execute(&*pool)
         .await
         .map_err(|e| e.to_string())?;
@@ -629,7 +669,7 @@ pub async fn save_draft<R: tauri::Runtime>(
 
         if let Some(a) = att {
             sqlx::query("INSERT INTO attachments (draft_id, filename, mime_type, size, file_hash) VALUES (?, ?, ?, ?, ?)")
-                .bind(draft_id)
+                .bind(actual_id)
                 .bind(a.0)
                 .bind(a.1)
                 .bind(a.2)
@@ -646,29 +686,38 @@ pub async fn save_draft<R: tauri::Runtime>(
 #[tauri::command]
 pub async fn get_drafts<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, account_id: i64) -> Result<Vec<Draft>, String> {
     let pool = app_handle.state::<SqlitePool>();
-    let drafts = sqlx::query_as::<_, Draft>("SELECT * FROM drafts WHERE account_id = ? ORDER BY updated_at DESC")
+    let mut drafts = sqlx::query_as::<_, Draft>("SELECT * FROM drafts WHERE account_id = ? ORDER BY updated_at DESC")
         .bind(account_id)
         .fetch_all(&*pool)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Make IDs negative to distinguish from server emails
+    for d in drafts.iter_mut() {
+        d.id = -d.id;
+    }
+
     Ok(drafts)
 }
 
 #[tauri::command]
 pub async fn get_draft_by_id<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, id: i64) -> Result<Draft, String> {
     let pool = app_handle.state::<SqlitePool>();
+    let actual_id = id.abs();
     let mut draft = sqlx::query_as::<_, Draft>("SELECT * FROM drafts WHERE id = ?")
-        .bind(id)
+        .bind(actual_id)
         .fetch_one(&*pool)
         .await
         .map_err(|e| e.to_string())?;
-    
+
+    draft.id = -draft.id; // Return negative ID
+
     let attachments = sqlx::query_as::<_, Attachment>("SELECT id, email_id, draft_id, filename, mime_type, size, file_hash FROM attachments WHERE draft_id = ?")
-        .bind(id)
+        .bind(actual_id)
         .fetch_all(&*pool)
         .await
         .map_err(|e| e.to_string())?;
-    
+
     draft.attachments = attachments;
     Ok(draft)
 }
@@ -676,8 +725,9 @@ pub async fn get_draft_by_id<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>,
 #[tauri::command]
 pub async fn delete_draft<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, id: i64) -> Result<(), String> {
     let pool = app_handle.state::<SqlitePool>();
+    let actual_id = id.abs();
     sqlx::query("DELETE FROM drafts WHERE id = ?")
-        .bind(id)
+        .bind(actual_id)
         .execute(&*pool)
         .await
         .map_err(|e| e.to_string())?;
