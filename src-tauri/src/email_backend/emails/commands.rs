@@ -726,11 +726,21 @@ pub async fn get_draft_by_id<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>,
 pub async fn delete_draft<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, id: i64) -> Result<(), String> {
     let pool = app_handle.state::<SqlitePool>();
     let actual_id = id.abs();
+
+    // Also delete attachments
+    sqlx::query("DELETE FROM attachments WHERE draft_id = ?")
+        .bind(actual_id)
+        .execute(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
     sqlx::query("DELETE FROM drafts WHERE id = ?")
         .bind(actual_id)
         .execute(&*pool)
         .await
         .map_err(|e| e.to_string())?;
+
+    let _ = app_handle.emit("emails-updated", ());
     Ok(())
 }
 

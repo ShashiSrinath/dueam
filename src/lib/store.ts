@@ -345,7 +345,17 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }));
 
     try {
-      await invoke("move_to_trash", { emailIds: ids });
+      const draftIds = ids.filter(id => id < 0).map(id => Math.abs(id));
+      const emailIds = ids.filter(id => id >= 0);
+
+      if (emailIds.length > 0) {
+        await invoke("move_to_trash", { emailIds });
+      }
+      
+      for (const draftId of draftIds) {
+        await invoke("delete_draft", { id: draftId });
+      }
+
       get().fetchUnifiedCounts();
       get().fetchAccountsAndFolders();
     } catch (error) {
@@ -365,7 +375,14 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }));
 
     try {
-      await invoke("archive_emails", { emailIds: ids });
+      const emailIds = ids.filter(id => id >= 0);
+      if (emailIds.length > 0) {
+        await invoke("archive_emails", { emailIds });
+      }
+
+      // Drafts can't really be archived, maybe just delete them or ignore?
+      // Let's ignore drafts for archive/move to inbox for now as it doesn't make much sense.
+
       get().fetchUnifiedCounts();
       get().fetchAccountsAndFolders();
     } catch (error) {
@@ -385,7 +402,11 @@ export const useEmailStore = create<EmailState>((set, get) => ({
     }));
 
     try {
-      await invoke("move_to_inbox", { emailIds: ids });
+      const emailIds = ids.filter(id => id >= 0);
+      if (emailIds.length > 0) {
+        await invoke("move_to_inbox", { emailIds });
+      }
+      
       get().fetchUnifiedCounts();
       get().fetchAccountsAndFolders();
     } catch (error) {

@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet, useParams } from "@tanstack/react-router";
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useEffect } from "react";
 import { z } from "zod";
 import { useEmailStore } from "@/lib/store";
 import { EmailListToolbar } from "./_inbox/-components/email-list-toolbar";
@@ -41,6 +41,7 @@ export function InboxLayout() {
   const emailIds = useMemo(() => emails.map(e => e.id), [emails]);
 
   const selectedIds = useEmailStore((state) => state.selectedIds);
+  const storeSelectedEmailId = useEmailStore((state) => state.selectedEmailId);
   const toggleSelect = useEmailStore((state) => state.toggleSelect);
   const selectRange = useEmailStore((state) => state.selectRange);
   const toggleSelectAll = useEmailStore((state) => state.toggleSelectAll);
@@ -48,6 +49,13 @@ export function InboxLayout() {
   const moveToTrash = useEmailStore((state) => state.moveToTrash);
   const archiveEmails = useEmailStore((state) => state.archiveEmails);
   const moveToInbox = useEmailStore((state) => state.moveToInbox);
+
+  // Navigate away if the currently viewed email is deleted/removed
+  useEffect(() => {
+    if (emailId && storeSelectedEmailId === null) {
+      navigate({ to: "/", search: searchParams, replace: true });
+    }
+  }, [emailId, storeSelectedEmailId, navigate, searchParams]);
 
   const handleSelectRange = useCallback((id: number) => {
     selectRange(id, emailIds);
