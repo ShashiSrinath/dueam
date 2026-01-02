@@ -52,8 +52,11 @@ export function ThreadMessage({
 
   // Update local email state if prop changes
   useEffect(() => {
-    setEmail(initialEmail);
-  }, [initialEmail]);
+    const isUnread = !email.flags.includes("seen");
+    if (isExpanded && isUnread && onMarkAsRead) {
+      onMarkAsRead();
+    }
+  }, [isExpanded, email.flags, onMarkAsRead]);
 
   const handleRegenerateSummary = async (e: React.MouseEvent) => {
     e.stopPropagation();
