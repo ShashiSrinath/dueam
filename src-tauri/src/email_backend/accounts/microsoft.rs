@@ -24,10 +24,8 @@ pub struct MicrosoftOAuth2Config {
 
 impl MicrosoftOAuth2Config {
     pub fn new() -> Result<Self, String> {
-        let client_id = std::env::var("MICROSOFT_CLIENT_ID")
-            .map_err(|_| "MICROSOFT_CLIENT_ID not found in environment".to_string())?;
-        let client_secret = std::env::var("MICROSOFT_CLIENT_SECRET")
-            .map_err(|_| "MICROSOFT_CLIENT_SECRET not found in environment".to_string())?;
+        let client_id = env!("MICROSOFT_CLIENT_ID").to_string();
+        let client_secret = env!("MICROSOFT_CLIENT_SECRET").to_string();
 
         let mut config = OAuth2Config::default();
         config.client_id = client_id;

@@ -15,8 +15,6 @@ mod db;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    dotenvy::dotenv().ok();
-
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()

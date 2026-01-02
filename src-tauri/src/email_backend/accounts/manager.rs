@@ -75,10 +75,8 @@ impl Account {
     pub fn get_configs(&self) -> Result<(Arc<AccountConfig>, Arc<ImapConfig>, Arc<SmtpConfig>), String> {
         match self {
             Account::Google(google) => {
-                let client_id = std::env::var("GOOGLE_CLIENT_ID")
-                    .map_err(|_| "GOOGLE_CLIENT_ID not found in environment".to_string())?;
-                let client_secret = std::env::var("GOOGLE_CLIENT_SECRET")
-                    .map_err(|_| "GOOGLE_CLIENT_SECRET not found in environment".to_string())?;
+                let client_id = env!("GOOGLE_CLIENT_ID").to_string();
+                let client_secret = env!("GOOGLE_CLIENT_SECRET").to_string();
 
                 let oauth2_config = OAuth2Config {
                     client_id,
@@ -116,10 +114,8 @@ impl Account {
                 Ok((account_config, imap_config, smtp_config))
             }
             Account::Microsoft(microsoft) => {
-                let client_id = std::env::var("MICROSOFT_CLIENT_ID")
-                    .map_err(|_| "MICROSOFT_CLIENT_ID not found in environment".to_string())?;
-                let client_secret = std::env::var("MICROSOFT_CLIENT_SECRET")
-                    .map_err(|_| "MICROSOFT_CLIENT_SECRET not found in environment".to_string())?;
+                let client_id = env!("MICROSOFT_CLIENT_ID").to_string();
+                let client_secret = env!("MICROSOFT_CLIENT_SECRET").to_string();
 
                 let oauth2_config = OAuth2Config {
                     client_id,
@@ -309,10 +305,8 @@ impl<R: tauri::Runtime> AccountManager<R> {
             
         match account {
             Account::Google(google) => {
-                let client_id = std::env::var("GOOGLE_CLIENT_ID")
-                    .map_err(|_| "GOOGLE_CLIENT_ID not found in environment".to_string())?;
-                let client_secret = std::env::var("GOOGLE_CLIENT_SECRET")
-                    .map_err(|_| "GOOGLE_CLIENT_SECRET not found in environment".to_string())?;
+                let client_id = env!("GOOGLE_CLIENT_ID").to_string();
+                let client_secret = env!("GOOGLE_CLIENT_SECRET").to_string();
 
                 let oauth2_config = OAuth2Config {
                     client_id,
@@ -338,10 +332,8 @@ impl<R: tauri::Runtime> AccountManager<R> {
                 Ok(access_token_val)
             }
             Account::Microsoft(microsoft) => {
-                let client_id = std::env::var("MICROSOFT_CLIENT_ID")
-                    .map_err(|_| "MICROSOFT_CLIENT_ID not found in environment".to_string())?;
-                let client_secret = std::env::var("MICROSOFT_CLIENT_SECRET")
-                    .map_err(|_| "MICROSOFT_CLIENT_SECRET not found in environment".to_string())?;
+                let client_id = env!("MICROSOFT_CLIENT_ID").to_string();
+                let client_secret = env!("MICROSOFT_CLIENT_SECRET").to_string();
 
                 let oauth2_config = OAuth2Config {
                     client_id,

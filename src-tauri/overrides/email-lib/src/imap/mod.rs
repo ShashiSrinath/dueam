@@ -87,27 +87,24 @@ static ID_PARAMS: Lazy<Vec<(IString<'static>, NString<'static>)>> = Lazy::new(||
     vec![
         (
             "name".try_into().unwrap(),
-            NString(
-                env::var("CARGO_PKG_NAME")
-                    .ok()
-                    .map(|e| e.try_into().unwrap()),
-            ),
+            NString(Some(
+                env!("CARGO_PKG_NAME")
+                    .try_into().unwrap(),
+            )),
         ),
         (
             "vendor".try_into().unwrap(),
-            NString(
-                env::var("CARGO_PKG_NAME")
-                    .ok()
-                    .map(|e| e.try_into().unwrap()),
-            ),
+            NString(Some(
+                env!("CARGO_PKG_NAME")
+                    .try_into().unwrap(),
+            )),
         ),
         (
             "version".try_into().unwrap(),
-            NString(
-                env::var("CARGO_PKG_VERSION")
-                    .ok()
-                    .map(|e| e.try_into().unwrap()),
-            ),
+            NString(Some(
+                env!("CARGO_PKG_VERSION")
+                    .try_into().unwrap(),
+            )),
         ),
         (
             "support-url".try_into().unwrap(),

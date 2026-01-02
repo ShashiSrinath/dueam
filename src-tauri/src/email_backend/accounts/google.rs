@@ -27,15 +27,14 @@ pub struct GoogleOAuth2Config {
 
 impl GoogleOAuth2Config {
     pub fn new() -> Result<Self, String> {
-        let client_id = std::env::var("GOOGLE_CLIENT_ID")
-            .map_err(|_| "GOOGLE_CLIENT_ID not found in environment".to_string())?;
-        let client_secret = std::env::var("GOOGLE_CLIENT_SECRET")
-            .map_err(|_| "GOOGLE_CLIENT_SECRET not found in environment".to_string())?;
+        let client_id = env!("GOOGLE_CLIENT_ID").to_string();
+        let client_secret = env!("GOOGLE_CLIENT_SECRET").to_string();
 
         let mut config = OAuth2Config::default();
         config.client_id = client_id;
         config.auth_url = "https://accounts.google.com/o/oauth2/auth".into();
         config.token_url = "https://www.googleapis.com/oauth2/v3/token".into();
+        config.pkce = true;
         config.scopes = Scopes(vec![
             "https://mail.google.com/".into(),
             "https://www.googleapis.com/auth/userinfo.email".into(),
