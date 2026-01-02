@@ -51,6 +51,7 @@ async-trait = "0.1.89"
 addr = "0.15.6"
 tauri-plugin-dialog = "2.4.2"
 tauri-plugin-fs = "2.4.4"
+tauri-plugin-single-instance = "2.2.0"
 
 [dev-dependencies]
 tempfile = "3"
