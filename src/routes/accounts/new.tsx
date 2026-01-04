@@ -66,17 +66,6 @@ function RouteComponent() {
     }
   };
 
-  const handleMicrosoftLogin = async () => {
-    try {
-      setError(null);
-      setIsConnecting(true);
-      await invoke("login_with_microsoft");
-    } catch (error) {
-      console.error("Failed to login with Microsoft:", error);
-      setError("Failed to initiate Microsoft login. Please try again.");
-      setIsConnecting(false);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
