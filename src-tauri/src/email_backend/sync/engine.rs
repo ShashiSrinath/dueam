@@ -14,6 +14,9 @@ use tauri::{Emitter, Manager};
 use tokio::sync::{oneshot, Mutex};
 use tokio::time::sleep;
 
+#[cfg(target_os = "linux")]
+use notify_rust::{Notification, Hint, Timeout};
+
 pub struct SyncEngine<R: tauri::Runtime = tauri::Wry> {
     app_handle: tauri::AppHandle<R>,
     idle_senders: Arc<Mutex<HashMap<i64, oneshot::Sender<()>>>>,
@@ -33,9 +36,8 @@ impl<R: tauri::Runtime> Clone for SyncEngine<R> {
 const SYNC_BATCH_SIZE: u32 = 100;
 const MAX_SYNC_MESSAGES_PER_FOLDER: u32 = 500;
 
-use tauri_plugin_notification::NotificationExt;
-
 fn normalize_subject(subject: &str) -> String {
+
     let mut s = subject.trim().to_lowercase();
 
     loop {
@@ -278,6 +280,65 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         notifications_enabled.0 == "true"
     }
 
+    fn send_notification(
+        app_handle: &tauri::AppHandle<R>,
+        email_id: i64,
+        title: String,
+        body: String,
+    ) {
+        #[cfg(target_os = "linux")]
+        {
+            let app_handle = app_handle.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let res = Notification::new()
+                    .summary(&title)
+                    .body(&body)
+                    .appname("Dream Email")
+                    .timeout(Timeout::Milliseconds(10000))
+                    .action("default", "Open")
+                    .action("mark_read", "Mark as Read")
+                    .hint(Hint::Category("email".into()))
+                    .show();
+
+                if let Ok(handle) = res {
+                    handle.wait_for_action(move |action| {
+                        match action {
+                            "default" | "open" => {
+                                tauri::async_runtime::spawn(async move {
+                                    if let Some(window) = app_handle.get_webview_window("main") {
+                                        let _ = window.show();
+                                        let _ = window.set_focus();
+                                        let _ = app_handle.emit("open-email", email_id);
+                                    }
+                                });
+                            }
+                            "mark_read" => {
+                                tauri::async_runtime::spawn(async move {
+                                    let _ = crate::email_backend::emails::commands::mark_as_read(
+                                        app_handle,
+                                        vec![email_id],
+                                    )
+                                    .await;
+                                });
+                            }
+                            _ => {}
+                        }
+                    });
+                }
+            });
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = app_handle
+                .notification()
+                .builder()
+                .title(title)
+                .body(body)
+                .show();
+        }
+    }
+
     async fn handle_notification(
         app_handle: tauri::AppHandle<R>,
         email_id: i64,
@@ -288,19 +349,28 @@ impl<R: tauri::Runtime> SyncEngine<R> {
             return;
         }
 
-        if !Self::is_ai_summary_enabled(&app_handle).await {
-            let _ = app_handle
-                .notification()
-                .builder()
-                .title(format!("New Email: {}", subject))
-                .body(format!("From: {}", sender))
-                .show();
+        let pool = app_handle.state::<SqlitePool>();
+        let is_spam: (bool,) = sqlx::query_as(
+            "SELECT EXISTS(SELECT 1 FROM emails e JOIN folders f ON e.folder_id = f.id WHERE e.id = ? AND f.role = 'spam')"
+        )
+        .bind(email_id)
+        .fetch_one(&*pool)
+        .await
+        .unwrap_or((false,));
+
+        if is_spam.0 {
             return;
         }
 
-        // AI Summary enabled, try to get it within 10 seconds
-        let start = std::time::Instant::now();
-        let timeout = std::time::Duration::from_secs(10);
+        if !Self::is_ai_summary_enabled(&app_handle).await {
+            Self::send_notification(
+                &app_handle,
+                email_id,
+                format!("New Email: {}", subject),
+                format!("From: {}", sender),
+            );
+            return;
+        }
 
         // Trigger indexing and summarization immediately for this email
         let app_handle_worker = app_handle.clone();
@@ -319,8 +389,11 @@ impl<R: tauri::Runtime> SyncEngine<R> {
             }
         });
 
+        // AI Summary enabled, try to get it within 10 seconds
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(10);
+
         while start.elapsed() < timeout {
-            let pool = app_handle.state::<SqlitePool>();
             let summary: Option<Option<String>> =
                 sqlx::query_scalar("SELECT summary FROM emails WHERE id = ?")
                     .bind(email_id)
@@ -329,12 +402,12 @@ impl<R: tauri::Runtime> SyncEngine<R> {
                     .unwrap_or(None);
 
             if let Some(Some(s)) = summary {
-                let _ = app_handle
-                    .notification()
-                    .builder()
-                    .title(format!("New Email: {}", subject))
-                    .body(format!("{}", s))
-                    .show();
+                Self::send_notification(
+                    &app_handle,
+                    email_id,
+                    format!("New Email: {}", subject),
+                    format!("{}", s),
+                );
                 return;
             }
 
@@ -342,12 +415,12 @@ impl<R: tauri::Runtime> SyncEngine<R> {
         }
 
         // Timeout reached, send default notification
-        let _ = app_handle
-            .notification()
-            .builder()
-            .title(format!("New Email: {}", subject))
-            .body(format!("From: {}", sender))
-            .show();
+        Self::send_notification(
+            &app_handle,
+            email_id,
+            format!("New Email: {}", subject),
+            format!("From: {}", sender),
+        );
     }
 
     async fn save_envelopes(
@@ -415,10 +488,14 @@ impl<R: tauri::Runtime> SyncEngine<R> {
                             .unwrap_or(&env.from.addr)
                             .to_string();
 
-                        tauri::async_runtime::spawn(async move {
-                            Self::handle_notification(app_handle_clone, email_id, subject, sender)
-                                .await;
-                        });
+                        // If we are syncing many emails at once, don't trigger individual notifications
+                        // to avoid spamming the system and AI.
+                        if total <= 5 {
+                            tauri::async_runtime::spawn(async move {
+                                Self::handle_notification(app_handle_clone, email_id, subject, sender)
+                                    .await;
+                            });
+                        }
                     }
                 }
                 Err(e) => {

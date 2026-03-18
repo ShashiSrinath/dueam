@@ -4,14 +4,23 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEmailStore } from "@/lib/store";
 
 type EmailEvent =
-  | { type: "email-updated"; payload: { id: number; summary?: string | null; flags?: string | null } }
-  | { type: "emails-updated-bulk"; payload: { ids: number[]; flags?: string | null } }
+  | {
+      type: "email-updated";
+      payload: { id: number; summary?: string | null; flags?: string | null };
+    }
+  | {
+      type: "emails-updated-bulk";
+      payload: { ids: number[]; flags?: string | null };
+    }
   | { type: "email-removed"; payload: { id: number } }
   | { type: "emails-removed-bulk"; payload: { ids: number[] } };
 
 export function useGlobalEvents() {
   const queryClient = useQueryClient();
-  const fetchAccountsAndFolders = useEmailStore(s => s.fetchAccountsAndFolders);
+  const fetchAccountsAndFolders = useEmailStore(
+    (s) => s.fetchAccountsAndFolders,
+  );
+  const setSelectedEmailId = useEmailStore((s) => s.setSelectedEmailId);
 
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -39,15 +48,21 @@ export function useGlobalEvents() {
       }, 200);
     });
 
+    const unlistenOpenEmail = listen("open-email", (event) => {
+      const emailId = event.payload as number;
+      setSelectedEmailId(emailId);
+    });
+
     const unlistenSenders = listen("sender-updated", (event) => {
       const address = event.payload as string;
       queryClient.invalidateQueries({ queryKey: ["sender", address] });
     });
 
     return () => {
-      unlistenEmails.then(u => u());
-      unlistenSenders.then(u => u());
+      unlistenEmails.then((u) => u());
+      unlistenOpenEmail.then((u) => u());
+      unlistenSenders.then((u) => u());
       if (timeout) clearTimeout(timeout);
     };
-  }, [queryClient, fetchAccountsAndFolders]);
+  }, [queryClient, fetchAccountsAndFolders, setSelectedEmailId]);
 }
