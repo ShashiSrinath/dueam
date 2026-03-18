@@ -2,5 +2,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    dueam_lib::run()
+    let start_minimized = std::env::args().any(|arg| arg == "--start-minimized");
+    dueam_lib::run(start_minimized)
 }

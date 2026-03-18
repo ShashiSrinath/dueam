@@ -30,7 +30,7 @@ mod email_backend;
 mod utils;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
+pub fn run(start_minimized: bool) {
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -63,8 +63,14 @@ pub fn run() {
             }
             _ => {}
         })
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle().clone();
+
+            if start_minimized {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
 
             // Tray Icon Setup
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
