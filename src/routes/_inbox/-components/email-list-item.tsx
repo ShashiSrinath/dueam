@@ -2,6 +2,8 @@ import { Link, useSearch } from "@tanstack/react-router";
 import { format, isToday, isYesterday, isThisYear } from "date-fns";
 import { Paperclip, Check, Reply, Forward, Sparkles } from "lucide-react";
 import { useMemo, memo, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { Email, useEmailStore } from "@/lib/store";
 import { useSettingsStore } from "@/lib/settings-store";
@@ -33,14 +35,16 @@ export const EmailListItem = memo(function EmailListItem({
   measureElement,
 }: EmailListItemProps) {
   const isDraft = email.folder_id === -1;
-  const setComposer = useEmailStore(state => state.setComposer);
+  const setComposer = useEmailStore((state) => state.setComposer);
   const search = useSearch({ strict: false }) as any;
   const isSentOrDraft = search.view === "sent" || search.view === "drafts";
 
   // Granular store subscriptions
-  const account = useEmailStore(state => state.accountsMap[email.account_id]);
-  const aiEnabled = useSettingsStore(state => state.settings.aiEnabled);
-  const aiSummarizationEnabled = useSettingsStore(state => state.settings.aiSummarizationEnabled);
+  const account = useEmailStore((state) => state.accountsMap[email.account_id]);
+  const aiEnabled = useSettingsStore((state) => state.settings.aiEnabled);
+  const aiSummarizationEnabled = useSettingsStore(
+    (state) => state.settings.aiSummarizationEnabled,
+  );
 
   const date = useMemo(() => {
     const d = new Date(email.date);
@@ -50,28 +54,54 @@ export const EmailListItem = memo(function EmailListItem({
     return format(d, "MM/dd/yy");
   }, [email.date]);
 
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    if (isDraft) {
-      e.preventDefault();
-      setComposer({
-        open: true,
-        draftId: email.id,
-        defaultTo: email.sender_address === "(No Recipient)" ? "" : email.sender_address,
-        defaultSubject: email.subject === "(No Subject)" ? "" : email.subject || "",
-        defaultBody: email.snippet || "",
-      });
-    }
-  }, [isDraft, email.id, email.sender_address, email.subject, email.snippet, setComposer]);
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (isDraft) {
+        e.preventDefault();
+        setComposer({
+          open: true,
+          draftId: email.id,
+          defaultTo:
+            email.sender_address === "(No Recipient)"
+              ? ""
+              : email.sender_address,
+          defaultSubject:
+            email.subject === "(No Subject)" ? "" : email.subject || "",
+          defaultBody: email.snippet || "",
+        });
+      }
+    },
+    [
+      isDraft,
+      email.id,
+      email.sender_address,
+      email.subject,
+      email.snippet,
+      setComposer,
+    ],
+  );
 
-  const handleAvatarClick = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.shiftKey) {
-      onSelectRange(email.id);
-    } else {
-      onToggleSelect(email.id);
-    }
-  }, [email.id, onSelectRange, onToggleSelect]);
+  const handleAvatarClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.shiftKey) {
+        onSelectRange(email.id);
+      } else {
+        onToggleSelect(email.id);
+      }
+    },
+    [email.id, onSelectRange, onToggleSelect],
+  );
+
+  const queryClient = useQueryClient();
+  const handlePrefetch = useCallback(() => {
+    if (isDraft) return;
+    queryClient.prefetchQuery({
+      queryKey: ["email", email.id],
+      queryFn: () => invoke("get_email_by_id", { emailId: email.id }),
+    });
+  }, [email.id, isDraft, queryClient]);
 
   return (
     <Link
@@ -79,20 +109,22 @@ export const EmailListItem = memo(function EmailListItem({
       params={isDraft ? {} : { emailId: email.id.toString() }}
       search={(prev) => prev}
       onClick={handleClick}
+      onMouseEnter={handlePrefetch}
       data-index={virtualItem.index}
       ref={measureElement}
       style={{
-        position: 'absolute',
+        position: "absolute",
         top: Math.round(virtualItem.start),
         left: 0,
-        width: '100%',
+        width: "100%",
       }}
       preload={"intent"}
       className={cn(
         "flex items-start gap-3 px-4 py-3 text-left border-b transition-all hover:bg-muted/40 group antialiased relative",
-        selectedEmailId === email.id && "bg-muted shadow-[inset_3px_0_0_0_var(--primary)]",
+        selectedEmailId === email.id &&
+          "bg-muted shadow-[inset_3px_0_0_0_var(--primary)]",
         isSelected && "bg-primary/5",
-        isUnread && !isSelected && "bg-primary/[0.02]"
+        isUnread && !isSelected && "bg-primary/[0.02]",
       )}
     >
       {/* Unread Indicator Dot */}
@@ -112,20 +144,24 @@ export const EmailListItem = memo(function EmailListItem({
             name={email.sender_name}
             avatarClassName={cn(
               "transition-all duration-400 ease-in-out size-9",
-              isSelected ? "scale-0 opacity-0" : "scale-100 opacity-100"
+              isSelected ? "scale-0 opacity-0" : "scale-100 opacity-100",
             )}
           />
 
-          <div className={cn(
-            "absolute inset-0 flex items-center justify-center rounded-full transition-all duration-400 ease-in-out border-2",
-            isSelected
-              ? "bg-primary border-primary scale-100 opacity-100"
-              : "bg-background border-muted-foreground/30 scale-50 opacity-0 group-hover:scale-100 group-hover:opacity-100"
-          )}>
-            <Check className={cn(
-              "size-5 text-primary-foreground transition-transform duration-400 ease-in-out",
-              isSelected ? "scale-100" : "scale-0 group-hover:scale-100"
-            )} />
+          <div
+            className={cn(
+              "absolute inset-0 flex items-center justify-center rounded-full transition-all duration-400 ease-in-out border-2",
+              isSelected
+                ? "bg-primary border-primary scale-100 opacity-100"
+                : "bg-background border-muted-foreground/30 scale-50 opacity-0 group-hover:scale-100 group-hover:opacity-100",
+            )}
+          >
+            <Check
+              className={cn(
+                "size-5 text-primary-foreground transition-transform duration-400 ease-in-out",
+                isSelected ? "scale-100" : "scale-0 group-hover:scale-100",
+              )}
+            />
           </div>
         </div>
       </div>
@@ -133,11 +169,17 @@ export const EmailListItem = memo(function EmailListItem({
       <div className="flex-1 min-w-0 flex flex-col gap-0.5">
         <div className="flex justify-between items-baseline">
           <div className="flex items-center gap-2 overflow-hidden">
-            <span className={cn(
-              "truncate text-[14px] transition-colors",
-              isUnread ? "font-bold text-foreground" : "font-semibold text-muted-foreground group-hover:text-foreground"
-            )}>
-              {isSentOrDraft ? (email.recipient_to || email.sender_address) : (email.sender_name || email.sender_address)}
+            <span
+              className={cn(
+                "truncate text-[14px] transition-colors",
+                isUnread
+                  ? "font-bold text-foreground"
+                  : "font-semibold text-muted-foreground group-hover:text-foreground",
+              )}
+            >
+              {isSentOrDraft
+                ? email.recipient_to || email.sender_address
+                : email.sender_name || email.sender_address}
             </span>
 
             {email.thread_count && email.thread_count > 1 && (
@@ -158,7 +200,9 @@ export const EmailListItem = memo(function EmailListItem({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {email.has_attachments && <Paperclip className="w-3 h-3 text-muted-foreground/60" />}
+            {email.has_attachments && (
+              <Paperclip className="w-3 h-3 text-muted-foreground/60" />
+            )}
             <span className="text-[11px] font-medium text-muted-foreground/70 whitespace-nowrap tabular-nums">
               {date}
             </span>
@@ -166,12 +210,20 @@ export const EmailListItem = memo(function EmailListItem({
         </div>
 
         <div className="flex items-center gap-1.5 min-w-0">
-          {email.is_reply && <Reply className="w-3 h-3 text-primary/60 shrink-0" />}
-          {email.is_forward && <Forward className="w-3 h-3 text-primary/60 shrink-0" />}
-          <div className={cn(
-            "text-[13px] truncate flex-1",
-            isUnread ? "text-foreground/90 font-medium" : "text-muted-foreground font-normal"
-          )}>
+          {email.is_reply && (
+            <Reply className="w-3 h-3 text-primary/60 shrink-0" />
+          )}
+          {email.is_forward && (
+            <Forward className="w-3 h-3 text-primary/60 shrink-0" />
+          )}
+          <div
+            className={cn(
+              "text-[13px] truncate flex-1",
+              isUnread
+                ? "text-foreground/90 font-medium"
+                : "text-muted-foreground font-normal",
+            )}
+          >
             {email.subject || "(No Subject)"}
           </div>
         </div>

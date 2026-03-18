@@ -1,10 +1,23 @@
 import { useSenderInfo } from "@/hooks/use-sender-info";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Github, Linkedin, Twitter, Globe, MapPin, Briefcase, History, Building2, RotateCcw, Edit2, Copy } from "lucide-react";
-import { useEffect, useState, useCallback, useRef } from "react";
+import {
+  Github,
+  Linkedin,
+  Twitter,
+  Globe,
+  MapPin,
+  Briefcase,
+  History,
+  Building2,
+  RotateCcw,
+  Edit2,
+  Copy,
+} from "lucide-react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Link } from "@tanstack/react-router";
 import { SenderAvatar } from "@/components/sender-avatar";
@@ -24,74 +37,80 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-export function SenderSidebar({ address, name: initialName }: { address: string; name?: string | null }) {
-  const { sender: initialSender, loading: senderLoading } = useSenderInfo(address);
-  const [sender, setSender] = useState<Sender | null>(null);
-  const [recentEmails, setRecentEmails] = useState<Email[]>([]);
-  const [domainInfo, setDomainInfo] = useState<Domain | null>(null);
+function useSenderSidebarData(address: string) {
+  const { sender, loading: senderLoading } = useSenderInfo(address);
+
+  const { data: recentEmailsData } = useQuery({
+    queryKey: ["emails-by-sender", address],
+    queryFn: () =>
+      invoke<Email[]>("get_emails_by_sender", { address, limit: 5 }),
+    enabled: !!address,
+  });
+
+  const { data: domainData } = useQuery({
+    queryKey: ["domain-info", sender?.company],
+    queryFn: () =>
+      sender?.company
+        ? invoke<Domain | null>("get_domain_info", { domain: sender.company })
+        : Promise.resolve(null),
+    enabled: !!sender?.company,
+  });
+
+  return {
+    sender,
+    senderLoading,
+    recentEmails: recentEmailsData || [],
+    domainInfo: domainData || null,
+  };
+}
+
+export function SenderSidebar({
+  address,
+  name: initialName,
+}: {
+  address: string;
+  name?: string | null;
+}) {
+  const { sender, senderLoading, recentEmails, domainInfo } =
+    useSenderSidebarData(address);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const accountsMap = useEmailStore(state => state.accountsMap);
-
-  useEffect(() => {
-    setSender(initialSender || null);
-  }, [initialSender]);
-
-  const fetchRecentEmails = useCallback(() => {
-    if (address) {
-      invoke<Email[]>("get_emails_by_sender", { address, limit: 5 })
-        .then(setRecentEmails)
-        .catch(console.error);
-    }
-  }, [address]);
-
-  const recentEmailsRef = useRef<Email[]>([]);
-  useEffect(() => {
-    recentEmailsRef.current = recentEmails;
-  }, [recentEmails]);
-
-  useEffect(() => {
-    setRecentEmails([]);
-    fetchRecentEmails();
-  }, [address, fetchRecentEmails]);
+  const accountsMap = useEmailStore((state) => state.accountsMap);
 
   useEffect(() => {
     const unlistenSenderPromise = listen("sender-updated", async (event) => {
-        if (event.payload === address) {
-            try {
-                const updatedSender = await invoke<Sender | null>("get_sender_info", { address });
-                if (updatedSender) setSender(updatedSender);
-            } catch (err) {
-                console.error("Failed to refresh sender info:", err);
-            }
+      if (event.payload === address) {
+        try {
+          const updatedSender = await invoke<Sender | null>("get_sender_info", {
+            address,
+          });
+          if (updatedSender) {
+            // The query cache will be updated automatically
+          }
+        } catch (err) {
+          console.error("Failed to refresh sender info:", err);
         }
+      }
     });
 
     return () => {
-      unlistenSenderPromise.then(unlisten => unlisten());
+      unlistenSenderPromise.then((unlisten) => unlisten());
     };
   }, [address]);
-
-  useEffect(() => {
-    if (sender?.company) {
-      invoke<Domain | null>("get_domain_info", { domain: sender.company })
-        .then(setDomainInfo)
-        .catch(console.error);
-    } else {
-      setDomainInfo(null);
-    }
-  }, [sender?.company]);
 
   const handleRegenerate = async () => {
     if (isRegenerating) return;
     setIsRegenerating(true);
     try {
-      const result = await invoke<Sender>("regenerate_sender_info", { address });
-      setSender(result);
+      await invoke<Sender>("regenerate_sender_info", {
+        address,
+      });
       toast.success("Sender information regenerated");
     } catch (err) {
       console.error("Failed to regenerate sender info:", err);
-      toast.error(typeof err === "string" ? err : "Failed to regenerate sender info");
+      toast.error(
+        typeof err === "string" ? err : "Failed to regenerate sender info",
+      );
     } finally {
       setIsRegenerating(false);
     }
@@ -115,25 +134,27 @@ export function SenderSidebar({ address, name: initialName }: { address: string;
         <div className="p-6 space-y-8 min-w-0 overflow-x-hidden group/sidebar">
           <div className="flex flex-col items-center text-center space-y-4 min-w-0 w-full overflow-hidden relative">
             <div className="absolute top-0 right-0 flex gap-1 opacity-0 group-hover/sidebar:opacity-100 transition-opacity">
-               <Button 
-                variant="ghost" 
-                size="icon" 
+              <Button
+                variant="ghost"
+                size="icon"
                 className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
                 onClick={() => setIsEditDialogOpen(true)}
                 title="Edit Details"
-               >
-                 <Edit2 className="w-4 h-4" />
-               </Button>
-               <Button 
-                variant="ghost" 
-                size="icon" 
+              >
+                <Edit2 className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
                 className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
                 onClick={handleRegenerate}
                 disabled={isRegenerating}
                 title="Regenerate Info"
-               >
-                 <RotateCcw className={cn("w-4 h-4", isRegenerating && "animate-spin")} />
-               </Button>
+              >
+                <RotateCcw
+                  className={cn("w-4 h-4", isRegenerating && "animate-spin")}
+                />
+              </Button>
             </div>
 
             <SenderAvatar
@@ -144,9 +165,14 @@ export function SenderSidebar({ address, name: initialName }: { address: string;
               showVerification={true}
             />
             <div className="space-y-1 w-full min-w-0 px-2">
-              <h3 className="font-bold text-lg break-words line-clamp-2">{initialName || sender?.name || address}</h3>
+              <h3 className="font-bold text-lg break-words line-clamp-2">
+                {initialName || sender?.name || address}
+              </h3>
               <div className="pt-1 pb-2 min-w-0 flex items-center justify-center gap-1 group/email">
-                <code className="text-[11px] bg-muted/50 text-muted-foreground px-2 py-0.5 rounded block break-all border border-border/50 leading-relaxed truncate max-w-[220px]" title={address}>
+                <code
+                  className="text-[11px] bg-muted/50 text-muted-foreground px-2 py-0.5 rounded block break-all border border-border/50 leading-relaxed truncate max-w-[220px]"
+                  title={address}
+                >
                   {address}
                 </code>
                 <Button
@@ -173,18 +199,27 @@ export function SenderSidebar({ address, name: initialName }: { address: string;
 
           {sender?.company && (
             <div className="space-y-3 min-w-0">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-semibold">Company</h4>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-semibold">
+                Company
+              </h4>
               <div className="flex items-center gap-3 p-3 bg-background rounded-lg border shadow-sm min-w-0">
-                <Avatar className="w-10 h-10 rounded-md shrink-0" key={sender.company}>
+                <Avatar
+                  className="w-10 h-10 rounded-md shrink-0"
+                  key={sender.company}
+                >
                   <AvatarImage src={domainInfo?.logo_url || ""} />
                   <AvatarFallback className="rounded-md">
                     <Building2 className="w-5 h-5 text-muted-foreground" />
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-bold truncate break-words">{sender.company}</div>
+                  <div className="text-sm font-bold truncate break-words">
+                    {sender.company}
+                  </div>
                   {domainInfo?.website_url && (
-                    <div className="text-[10px] text-muted-foreground truncate">{domainInfo.website_url}</div>
+                    <div className="text-[10px] text-muted-foreground truncate">
+                      {domainInfo.website_url}
+                    </div>
                   )}
                 </div>
               </div>
@@ -193,7 +228,9 @@ export function SenderSidebar({ address, name: initialName }: { address: string;
 
           {(sender?.location || sender?.website_url) && (
             <div className="space-y-3 min-w-0">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">About</h4>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                About
+              </h4>
               <div className="space-y-2 min-w-0">
                 {sender?.location && (
                   <div className="flex items-center gap-2.5 text-sm text-foreground/80 min-w-0">
@@ -205,12 +242,16 @@ export function SenderSidebar({ address, name: initialName }: { address: string;
                   <div className="flex items-center gap-2.5 text-sm text-foreground/80 min-w-0">
                     <Globe className="w-4 h-4 text-muted-foreground shrink-0" />
                     <a
-                      href={sender.website_url.startsWith('http') ? sender.website_url : `https://${sender.website_url}`}
+                      href={
+                        sender.website_url.startsWith("http")
+                          ? sender.website_url
+                          : `https://${sender.website_url}`
+                      }
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-primary hover:underline break-all line-clamp-2"
                     >
-                      {sender.website_url.replace(/^https?:\/\//, '')}
+                      {sender.website_url.replace(/^https?:\/\//, "")}
                     </a>
                   </div>
                 )}
@@ -218,13 +259,21 @@ export function SenderSidebar({ address, name: initialName }: { address: string;
             </div>
           )}
 
-          {(sender?.github_handle || sender?.linkedin_handle || sender?.twitter_handle) && (
+          {(sender?.github_handle ||
+            sender?.linkedin_handle ||
+            sender?.twitter_handle) && (
             <div className="space-y-3 min-w-0">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-semibold">Verified Profiles</h4>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-semibold">
+                Verified Profiles
+              </h4>
               <div className="flex gap-3">
                 {sender?.linkedin_handle && (
                   <a
-                    href={sender.linkedin_handle.startsWith('http') ? sender.linkedin_handle : `https://linkedin.com/in/${sender.linkedin_handle}`}
+                    href={
+                      sender.linkedin_handle.startsWith("http")
+                        ? sender.linkedin_handle
+                        : `https://linkedin.com/in/${sender.linkedin_handle}`
+                    }
                     target="_blank"
                     rel="noopener noreferrer"
                     className="p-2 bg-[#0077b5]/10 text-[#0077b5] rounded-full hover:bg-[#0077b5]/20 transition-colors"
@@ -235,7 +284,11 @@ export function SenderSidebar({ address, name: initialName }: { address: string;
                 )}
                 {sender?.twitter_handle && (
                   <a
-                    href={sender.twitter_handle.startsWith('http') ? sender.twitter_handle : `https://twitter.com/${sender.twitter_handle}`}
+                    href={
+                      sender.twitter_handle.startsWith("http")
+                        ? sender.twitter_handle
+                        : `https://twitter.com/${sender.twitter_handle}`
+                    }
                     target="_blank"
                     rel="noopener noreferrer"
                     className="p-2 bg-foreground/5 text-foreground rounded-full hover:bg-foreground/10 transition-colors"
@@ -246,7 +299,11 @@ export function SenderSidebar({ address, name: initialName }: { address: string;
                 )}
                 {sender?.github_handle && (
                   <a
-                    href={sender.github_handle.startsWith('http') ? sender.github_handle : `https://github.com/${sender.github_handle}`}
+                    href={
+                      sender.github_handle.startsWith("http")
+                        ? sender.github_handle
+                        : `https://github.com/${sender.github_handle}`
+                    }
                     target="_blank"
                     rel="noopener noreferrer"
                     className="p-2 bg-foreground/5 text-foreground rounded-full hover:bg-foreground/10 transition-colors"
@@ -261,7 +318,9 @@ export function SenderSidebar({ address, name: initialName }: { address: string;
 
           {sender?.bio && (
             <div className="space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Bio</h4>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Bio
+              </h4>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 {sender.bio}
               </p>
@@ -289,8 +348,8 @@ export function SenderSidebar({ address, name: initialName }: { address: string;
                           {email.subject || "(No Subject)"}
                         </div>
                         {account && (
-                          <Badge 
-                            variant="outline" 
+                          <Badge
+                            variant="outline"
                             className="text-[8px] px-2 py-0 h-3.5 border-muted-foreground/15 text-muted-foreground/50 font-normal bg-transparent truncate max-w-[80px] shrink-0 mt-0.5"
                             title={account.data.email}
                           >
@@ -321,14 +380,14 @@ export function SenderSidebar({ address, name: initialName }: { address: string;
   );
 }
 
-function EditSenderDialog({ 
-  isOpen, 
-  onClose, 
-  sender 
-}: { 
-  isOpen: boolean; 
-  onClose: () => void; 
-  sender: Sender 
+function EditSenderDialog({
+  isOpen,
+  onClose,
+  sender,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  sender: Sender;
 }) {
   const [formData, setFormData] = useState<Sender>(sender);
   const [isSaving, setIsSaving] = useState(false);
@@ -360,84 +419,104 @@ function EditSenderDialog({
         <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto px-1">
           <div className="grid gap-2">
             <Label htmlFor="name">Name</Label>
-            <Input 
-              id="name" 
-              value={formData.name || ""} 
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            <Input
+              id="name"
+              value={formData.name || ""}
+              onChange={(e) =>
+                setFormData({ ...formData, name: e.target.value })
+              }
             />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="job_title">Job Title</Label>
-            <Input 
-              id="job_title" 
-              value={formData.job_title || ""} 
-              onChange={(e) => setFormData({ ...formData, job_title: e.target.value })}
+            <Input
+              id="job_title"
+              value={formData.job_title || ""}
+              onChange={(e) =>
+                setFormData({ ...formData, job_title: e.target.value })
+              }
             />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="company">Company</Label>
-            <Input 
-              id="company" 
-              value={formData.company || ""} 
-              onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+            <Input
+              id="company"
+              value={formData.company || ""}
+              onChange={(e) =>
+                setFormData({ ...formData, company: e.target.value })
+              }
             />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="location">Location</Label>
-            <Input 
-              id="location" 
-              value={formData.location || ""} 
-              onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+            <Input
+              id="location"
+              value={formData.location || ""}
+              onChange={(e) =>
+                setFormData({ ...formData, location: e.target.value })
+              }
             />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="website_url">Website URL</Label>
-            <Input 
-              id="website_url" 
-              value={formData.website_url || ""} 
-              onChange={(e) => setFormData({ ...formData, website_url: e.target.value })}
+            <Input
+              id="website_url"
+              value={formData.website_url || ""}
+              onChange={(e) =>
+                setFormData({ ...formData, website_url: e.target.value })
+              }
             />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="bio">Bio</Label>
-            <Textarea 
-              id="bio" 
-              value={formData.bio || ""} 
-              onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
+            <Textarea
+              id="bio"
+              value={formData.bio || ""}
+              onChange={(e) =>
+                setFormData({ ...formData, bio: e.target.value })
+              }
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
               <Label htmlFor="linkedin">LinkedIn</Label>
-              <Input 
-                id="linkedin" 
+              <Input
+                id="linkedin"
                 placeholder="handle or URL"
-                value={formData.linkedin_handle || ""} 
-                onChange={(e) => setFormData({ ...formData, linkedin_handle: e.target.value })}
+                value={formData.linkedin_handle || ""}
+                onChange={(e) =>
+                  setFormData({ ...formData, linkedin_handle: e.target.value })
+                }
               />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="twitter">Twitter / X</Label>
-              <Input 
-                id="twitter" 
+              <Input
+                id="twitter"
                 placeholder="handle or URL"
-                value={formData.twitter_handle || ""} 
-                onChange={(e) => setFormData({ ...formData, twitter_handle: e.target.value })}
+                value={formData.twitter_handle || ""}
+                onChange={(e) =>
+                  setFormData({ ...formData, twitter_handle: e.target.value })
+                }
               />
             </div>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="github">GitHub</Label>
-            <Input 
-              id="github" 
+            <Input
+              id="github"
               placeholder="handle or URL"
-              value={formData.github_handle || ""} 
-              onChange={(e) => setFormData({ ...formData, github_handle: e.target.value })}
+              value={formData.github_handle || ""}
+              onChange={(e) =>
+                setFormData({ ...formData, github_handle: e.target.value })
+              }
             />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
           <Button onClick={handleSave} disabled={isSaving}>
             {isSaving ? "Saving..." : "Save Changes"}
           </Button>
