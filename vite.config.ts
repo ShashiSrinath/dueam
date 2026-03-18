@@ -57,8 +57,9 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // Keep Vite out of generated build trees and symlink-heavy Flatpak output.
+      followSymlinks: false,
+      ignored: ["**/src-tauri/**", "**/build-dir/**", "**/.flatpak-builder/**"],
     },
   },
 }));

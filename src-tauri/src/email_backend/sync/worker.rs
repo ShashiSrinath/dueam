@@ -1,10 +1,10 @@
+use crate::email_backend::emails::events::EmailEvent;
+use log::{debug, error, info};
+use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::time::Duration;
-use tauri::{Manager, Emitter};
-use crate::email_backend::emails::events::EmailEvent;
-use log::{info, error};
-use sqlx::SqlitePool;
-use tokio::time::sleep;
+use tauri::{Emitter, Manager};
+use tokio::time::{interval, sleep, MissedTickBehavior};
 
 use crate::email_backend::sync::SyncEngine;
 use email::envelope::Id;
@@ -12,175 +12,188 @@ use email::message::get::GetMessages;
 
 pub struct SyncWorker<R: tauri::Runtime> {
     app_handle: tauri::AppHandle<R>,
-    pool: SqlitePool,
 }
 
 impl<R: tauri::Runtime> SyncWorker<R> {
     pub fn new(app_handle: tauri::AppHandle<R>) -> Self {
-        let pool = app_handle.state::<SqlitePool>().inner().clone();
-        Self { app_handle, pool }
+        Self { app_handle }
     }
 
     pub async fn start(&self) {
         info!("Starting Sync Worker...");
 
-        let app_handle = self.app_handle.clone();
+        let indexing_handle = self.app_handle.clone();
         tokio::spawn(async move {
+            let mut ticker = interval(Duration::from_secs(10));
+            ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
             loop {
-                // Indexing
-                if let Err(e) = Self::index_pending_emails(&app_handle).await {
+                ticker.tick().await;
+
+                if let Err(e) = Self::index_pending_emails(&indexing_handle).await {
                     error!("Error during background indexing: {}", e);
                 }
-                sleep(Duration::from_secs(10)).await;
+            }
+        });
 
-                // Thread Resolution
-                let app_handle_threading = app_handle.clone();
-                tokio::spawn(async move {
-                    let pool = app_handle_threading.state::<SqlitePool>();
-                    let backlog_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM emails WHERE thread_id = message_id AND normalized_subject IS NOT NULL AND normalized_subject != ''")
-                        .fetch_one(&*pool)
-                        .await
-                        .unwrap_or(0);
+        let threading_handle = self.app_handle.clone();
+        tokio::spawn(async move {
+            loop {
+                let pool = threading_handle.state::<SqlitePool>();
+                let backlog_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM emails WHERE thread_id = message_id AND normalized_subject IS NOT NULL AND normalized_subject != ''")
+                    .fetch_one(&*pool)
+                    .await
+                    .unwrap_or(0);
 
-                    let sleep_time = if backlog_count > 1000 { 5 } else { 30 };
-                    let batch_size = if backlog_count > 1000 { 2000 } else { 100 };
+                let sleep_time = if backlog_count > 1000 { 5 } else { 30 };
+                let batch_size = if backlog_count > 1000 { 2000 } else { 100 };
 
-                    if let Err(e) = Self::resolve_threads(&app_handle_threading, batch_size).await {
-                        error!("Error during background threading: {}", e);
-                    }
-                    sleep(Duration::from_secs(sleep_time)).await;
-                });
+                if let Err(e) = Self::resolve_threads(&threading_handle, batch_size).await {
+                    error!("Error during background threading: {}", e);
+                }
 
-                // Proactive Enrichment
-                let app_handle_enrichment = app_handle.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = crate::email_backend::enrichment::commands::proactive_enrichment(&app_handle_enrichment).await {
-                        error!("Error during background enrichment: {}", e);
-                    }
-                    sleep(Duration::from_secs(120)).await;
-                });
+                sleep(Duration::from_secs(sleep_time)).await;
+            }
+        });
 
-                // Proactive Summarization
-                let app_handle_summarization = app_handle.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = Self::proactive_summarization(&app_handle_summarization).await {
-                        error!("Error during background summarization: {}", e);
-                    }
-                    sleep(Duration::from_secs(120)).await;
-                });
+        let enrichment_handle = self.app_handle.clone();
+        tokio::spawn(async move {
+            let mut ticker = interval(Duration::from_secs(120));
+            ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-                // Contact Sync
-                let app_handle_contacts = app_handle.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = crate::email_backend::enrichment::commands::sync_contacts_internal(&app_handle_contacts).await {
-                        error!("Error during background contact sync: {}", e);
-                    }
-                    sleep(Duration::from_secs(1800)).await; // Sync every 30 minutes
-                });
+            loop {
+                ticker.tick().await;
+
+                if let Err(e) = crate::email_backend::enrichment::commands::proactive_enrichment(
+                    &enrichment_handle,
+                )
+                .await
+                {
+                    error!("Error during background enrichment: {}", e);
+                }
+            }
+        });
+
+        let contacts_handle = self.app_handle.clone();
+        tokio::spawn(async move {
+            let mut ticker = interval(Duration::from_secs(1800));
+            ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+            loop {
+                ticker.tick().await;
+
+                if let Err(e) = crate::email_backend::enrichment::commands::sync_contacts_internal(
+                    &contacts_handle,
+                )
+                .await
+                {
+                    error!("Error during background contact sync: {}", e);
+                }
             }
         });
     }
 
-    async fn proactive_summarization(app_handle: &tauri::AppHandle<R>) -> Result<(), String> {
+    pub async fn summarize_visible_emails(
+        app_handle: &tauri::AppHandle<R>,
+        email_ids: Vec<i64>,
+    ) -> Result<(), String> {
         let pool = app_handle.state::<SqlitePool>();
 
-        // Check if enabled
-        let ai_enabled: (String,) = sqlx::query_as("SELECT value FROM settings WHERE key = 'aiEnabled'")
-            .fetch_one(&*pool)
-            .await
-            .unwrap_or(("false".to_string(),));
-        
-        let ai_summarization_enabled: (String,) = sqlx::query_as("SELECT value FROM settings WHERE key = 'aiSummarizationEnabled'")
-            .fetch_one(&*pool)
-            .await
-            .unwrap_or(("false".to_string(),));
+        let ai_enabled: (String,) =
+            sqlx::query_as("SELECT value FROM settings WHERE key = 'aiEnabled'")
+                .fetch_one(&*pool)
+                .await
+                .unwrap_or(("false".to_string(),));
+
+        let ai_summarization_enabled: (String,) =
+            sqlx::query_as("SELECT value FROM settings WHERE key = 'aiSummarizationEnabled'")
+                .fetch_one(&*pool)
+                .await
+                .unwrap_or(("false".to_string(),));
 
         if ai_enabled.0 != "true" || ai_summarization_enabled.0 != "true" {
             return Ok(());
         }
 
-        // Find emails that:
-        // 1. Have no summary
-        // 2. Have body_text
-        // 3. Are NOT in spam or trash
-        // 4. Are newer than account_creation - 14 days
-        let pending_summaries: Vec<(i64, String)> = sqlx::query_as(
-            "SELECT e.id, e.body_text
-             FROM emails e
-             JOIN accounts a ON e.account_id = a.id
-             JOIN folders f ON e.folder_id = f.id
-             WHERE e.summary IS NULL 
-               AND e.body_text IS NOT NULL
-               AND f.role != 'spam'
-               AND f.role != 'trash'
-               AND datetime(e.date) > datetime(a.created_at, '-14 days')
-             ORDER BY e.date DESC
-             LIMIT 10" // Process in small batches
-        )
-        .fetch_all(&*pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        for email_id in email_ids {
+            let body_text: Option<String> =
+                sqlx::query_scalar("SELECT body_text FROM emails WHERE id = ?")
+                    .bind(email_id)
+                    .fetch_one(&*pool)
+                    .await
+                    .ok();
 
-        if pending_summaries.is_empty() {
-            return Ok(());
-        }
+            let Some(text) = body_text else {
+                continue;
+            };
 
-        info!("Proactively summarizing {} emails", pending_summaries.len());
+            let current_summary: Option<String> =
+                sqlx::query_scalar("SELECT summary FROM emails WHERE id = ?")
+                    .bind(email_id)
+                    .fetch_optional(&*pool)
+                    .await
+                    .ok()
+                    .flatten();
 
-        for (id, body_text) in pending_summaries {
-            let sender_address: Option<String> = sqlx::query_scalar("SELECT sender_address FROM emails WHERE id = ?")
-                .bind(id)
-                .fetch_one(&*pool)
-                .await
-                .ok();
-
-            match crate::email_backend::llm::summarization::summarize_email_with_ai(app_handle, id, &body_text, false).await {
-                Ok(summary) => {
-                    let _ = sqlx::query("UPDATE emails SET summary = ? WHERE id = ?")
-                        .bind(&summary)
-                        .bind(id)
-                        .execute(&*pool)
-                        .await;
-                    
-                    let _ = app_handle.emit("emails-updated", EmailEvent::Updated {
-                        id,
-                        address: sender_address,
-                        flags: None,
-                        summary: Some(summary),
-                        thread_count: None,
-                    });
-                }
-                Err(e) => {
-                    error!("Failed to summarize email {}: {}", id, e);
-                }
+            if current_summary
+                .as_deref()
+                .is_some_and(|s| !s.is_empty())
+            {
+                continue;
             }
-            // Polite delay
-            sleep(Duration::from_millis(500)).await;
+
+            let role: Option<String> = sqlx::query_scalar(
+                "SELECT f.role FROM emails e JOIN folders f ON e.folder_id = f.id WHERE e.id = ?",
+            )
+            .bind(email_id)
+            .fetch_optional(&*pool)
+            .await
+            .ok()
+            .flatten();
+
+            if matches!(role.as_deref(), Some("spam") | Some("trash")) {
+                continue;
+            }
+
+            if let Err(e) = crate::email_backend::llm::summarization::enqueue_summarization(
+                app_handle,
+                email_id,
+                &text,
+                crate::email_backend::llm::AiTaskPriority::High,
+            )
+            .await
+            {
+                debug!("Failed to enqueue summarization for email {}: {}", email_id, e);
+            }
         }
 
         Ok(())
     }
 
-    pub async fn summarize_specific_email(app_handle: &tauri::AppHandle<R>, email_id: i64) -> Result<(), String> {
+    pub async fn summarize_specific_email(
+        app_handle: &tauri::AppHandle<R>,
+        email_id: i64,
+    ) -> Result<(), String> {
         let pool = app_handle.state::<SqlitePool>();
-        let body_text: Option<String> = sqlx::query_scalar("SELECT body_text FROM emails WHERE id = ?")
-            .bind(email_id)
-            .fetch_one(&*pool)
-            .await
-            .map_err(|e| e.to_string())?;
+        let body_text: Option<String> =
+            sqlx::query_scalar("SELECT body_text FROM emails WHERE id = ?")
+                .bind(email_id)
+                .fetch_one(&*pool)
+                .await
+                .map_err(|e| e.to_string())?;
 
         if let Some(text) = body_text {
-            match crate::email_backend::llm::summarization::summarize_email_with_ai(app_handle, email_id, &text, false).await {
-                Ok(summary) => {
-                    let _ = sqlx::query("UPDATE emails SET summary = ? WHERE id = ?")
-                        .bind(summary)
-                        .bind(email_id)
-                        .execute(&*pool)
-                        .await;
-                    return Ok(());
-                }
-                Err(e) => return Err(e),
+            if let Err(e) = crate::email_backend::llm::summarization::enqueue_summarization(
+                app_handle,
+                email_id,
+                &text,
+                crate::email_backend::llm::AiTaskPriority::High,
+            )
+            .await
+            {
+                return Err(e);
             }
+            return Ok(());
         }
         Err("No body text found for summarization".to_string())
     }
@@ -188,19 +201,24 @@ impl<R: tauri::Runtime> SyncWorker<R> {
     async fn index_pending_emails(app_handle: &tauri::AppHandle<R>) -> Result<(), String> {
         let pool = app_handle.state::<SqlitePool>();
 
-        let sync_months_setting: (String,) = sqlx::query_as("SELECT value FROM settings WHERE key = 'syncMonths'")
-            .fetch_one(&*pool)
-            .await
-            .unwrap_or(("3".to_string(),));
+        let sync_months_setting: (String,) =
+            sqlx::query_as("SELECT value FROM settings WHERE key = 'syncMonths'")
+                .fetch_one(&*pool)
+                .await
+                .unwrap_or(("3".to_string(),));
         let sync_months = sync_months_setting.0.parse::<i32>().unwrap_or(3);
 
         let mut query = "SELECT e.id, e.account_id, e.remote_id, f.path
              FROM emails e
              JOIN folders f ON e.folder_id = f.id
-             WHERE e.body_text IS NULL AND f.role != 'trash' AND f.role != 'spam'".to_string();
+             WHERE e.body_text IS NULL AND f.role != 'trash' AND f.role != 'spam'"
+            .to_string();
 
         if sync_months > 0 {
-            query.push_str(&format!(" AND datetime(e.date) > datetime('now', '-{} months')", sync_months));
+            query.push_str(&format!(
+                " AND datetime(e.date) > datetime('now', '-{} months')",
+                sync_months
+            ));
         }
 
         query.push_str(" ORDER BY e.date DESC LIMIT 20");
@@ -218,7 +236,10 @@ impl<R: tauri::Runtime> SyncWorker<R> {
 
         let mut by_account: HashMap<i64, Vec<(i64, String, String)>> = HashMap::new();
         for (id, account_id, remote_id, folder_path) in pending_emails {
-            by_account.entry(account_id).or_default().push((id, remote_id, folder_path));
+            by_account
+                .entry(account_id)
+                .or_default()
+                .push((id, remote_id, folder_path));
         }
 
         for (account_id, emails) in by_account {
@@ -233,7 +254,7 @@ impl<R: tauri::Runtime> SyncWorker<R> {
 
             for (email_id, remote_id, folder_path) in emails {
                 let uids = Id::single(remote_id.clone());
-                
+
                 match backend.get_messages(&folder_path, &uids).await {
                     Ok(messages) => {
                         for message in messages.to_vec() {
@@ -241,7 +262,10 @@ impl<R: tauri::Runtime> SyncWorker<R> {
                         }
                     }
                     Err(e) => {
-                        error!("Failed to fetch message uid {} for indexing: {}", remote_id, e);
+                        error!(
+                            "Failed to fetch message uid {} for indexing: {}",
+                            remote_id, e
+                        );
                     }
                 }
                 sleep(Duration::from_millis(100)).await;
@@ -251,13 +275,16 @@ impl<R: tauri::Runtime> SyncWorker<R> {
         Ok(())
     }
 
-    pub async fn index_specific_email(app_handle: &tauri::AppHandle<R>, email_id: i64) -> Result<(), String> {
+    pub async fn index_specific_email(
+        app_handle: &tauri::AppHandle<R>,
+        email_id: i64,
+    ) -> Result<(), String> {
         let pool = app_handle.state::<SqlitePool>();
         let email_info: Option<(i64, String, String)> = sqlx::query_as(
             "SELECT e.account_id, e.remote_id, f.path 
              FROM emails e 
              JOIN folders f ON e.folder_id = f.id 
-             WHERE e.id = ?"
+             WHERE e.id = ?",
         )
         .bind(email_id)
         .fetch_optional(&*pool)
@@ -268,7 +295,7 @@ impl<R: tauri::Runtime> SyncWorker<R> {
             let engine = app_handle.state::<SyncEngine<R>>();
             let backend = engine.get_backend(account_id).await?;
             let uids = Id::single(remote_id.clone());
-            
+
             match backend.get_messages(&folder_path, &uids).await {
                 Ok(messages) => {
                     for message in messages.to_vec() {
@@ -281,15 +308,19 @@ impl<R: tauri::Runtime> SyncWorker<R> {
         Ok(())
     }
 
-    async fn save_message_parts(app_handle: &tauri::AppHandle<R>, email_id: i64, message: &email::message::Message<'_>) -> Result<(), String> {
+    async fn save_message_parts(
+        app_handle: &tauri::AppHandle<R>,
+        email_id: i64,
+        message: &email::message::Message<'_>,
+    ) -> Result<(), String> {
         let pool = app_handle.state::<SqlitePool>();
-        
+
         // Save attachments if any
         if let Ok(attachments) = message.attachments() {
             for att in attachments {
                 let _ = sqlx::query(
                     "INSERT INTO attachments (email_id, filename, mime_type, size)
-                     VALUES (?, ?, ?, ?)"
+                     VALUES (?, ?, ?, ?)",
                 )
                 .bind(email_id)
                 .bind(&att.filename)
@@ -310,25 +341,27 @@ impl<R: tauri::Runtime> SyncWorker<R> {
                 s.replace('\n', " ").replace('\r', "")
             });
 
-            let _ = sqlx::query("UPDATE emails SET body_text = ?, body_html = ?, snippet = ? WHERE id = ?")
-                .bind(body_text)
-                .bind(body_html)
-                .bind(snippet)
-                .bind(email_id)
-                .execute(&*pool)
-                .await
-                .map_err(|e| e.to_string())?;
+            let _ = sqlx::query(
+                "UPDATE emails SET body_text = ?, body_html = ?, snippet = ? WHERE id = ?",
+            )
+            .bind(body_text)
+            .bind(body_html)
+            .bind(snippet)
+            .bind(email_id)
+            .execute(&*pool)
+            .await
+            .map_err(|e| e.to_string())?;
         }
         Ok(())
     }
 
     async fn resolve_threads(app_handle: &tauri::AppHandle<R>, limit: i64) -> Result<(), String> {
         let pool = app_handle.state::<SqlitePool>();
-        
+
         let unlinked_replies: Vec<(i64, String, String)> = sqlx::query_as(
             "SELECT id, message_id, in_reply_to FROM emails 
              WHERE in_reply_to IS NOT NULL AND thread_id = message_id 
-             LIMIT ?"
+             LIMIT ?",
         )
         .bind(limit)
         .fetch_all(&*pool)
@@ -336,13 +369,12 @@ impl<R: tauri::Runtime> SyncWorker<R> {
         .map_err(|e| e.to_string())?;
 
         for (id, _message_id, in_reply_to) in unlinked_replies {
-            let parent: Option<(String,)> = sqlx::query_as(
-                "SELECT thread_id FROM emails WHERE message_id = ? LIMIT 1"
-            )
-            .bind(&in_reply_to)
-            .fetch_optional(&*pool)
-            .await
-            .map_err(|e| e.to_string())?;
+            let parent: Option<(String,)> =
+                sqlx::query_as("SELECT thread_id FROM emails WHERE message_id = ? LIMIT 1")
+                    .bind(&in_reply_to)
+                    .fetch_optional(&*pool)
+                    .await
+                    .map_err(|e| e.to_string())?;
 
             if let Some((parent_thread_id,)) = parent {
                 let _ = sqlx::query("UPDATE emails SET thread_id = ? WHERE id = ?")
@@ -357,7 +389,7 @@ impl<R: tauri::Runtime> SyncWorker<R> {
         let unlinked_refs: Vec<(i64, String, String)> = sqlx::query_as(
             "SELECT id, message_id, references_header FROM emails 
              WHERE references_header IS NOT NULL AND thread_id = message_id 
-             LIMIT ?"
+             LIMIT ?",
         )
         .bind(limit)
         .fetch_all(&*pool)
@@ -365,15 +397,18 @@ impl<R: tauri::Runtime> SyncWorker<R> {
         .map_err(|e| e.to_string())?;
 
         for (id, _message_id, refs) in unlinked_refs {
-            let ref_ids: Vec<&str> = refs.split(|c| c == ' ' || c == ',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+            let ref_ids: Vec<&str> = refs
+                .split(|c| c == ' ' || c == ',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .collect();
             for ref_id in ref_ids.iter().rev() {
-                let parent: Option<(String,)> = sqlx::query_as(
-                    "SELECT thread_id FROM emails WHERE message_id = ? LIMIT 1"
-                )
-                .bind(ref_id)
-                .fetch_optional(&*pool)
-                .await
-                .map_err(|e| e.to_string())?;
+                let parent: Option<(String,)> =
+                    sqlx::query_as("SELECT thread_id FROM emails WHERE message_id = ? LIMIT 1")
+                        .bind(ref_id)
+                        .fetch_optional(&*pool)
+                        .await
+                        .map_err(|e| e.to_string())?;
 
                 if let Some((parent_thread_id,)) = parent {
                     let _ = sqlx::query("UPDATE emails SET thread_id = ? WHERE id = ?")
@@ -402,12 +437,20 @@ impl<R: tauri::Runtime> SyncWorker<R> {
              WHERE thread_id = message_id 
                AND normalized_subject IS NOT NULL 
                AND normalized_subject != ''
-               AND id IN (SELECT id FROM emails WHERE thread_id = message_id LIMIT ?)"
+               AND id IN (SELECT id FROM emails WHERE thread_id = message_id LIMIT ?)",
         )
         .bind(limit)
         .execute(&*pool)
         .await;
-        
+
         Ok(())
     }
+}
+
+#[tauri::command]
+pub async fn summarize_visible_emails<R: tauri::Runtime>(
+    app_handle: tauri::AppHandle<R>,
+    email_ids: Vec<i64>,
+) -> Result<(), String> {
+    SyncWorker::summarize_visible_emails(&app_handle, email_ids).await
 }

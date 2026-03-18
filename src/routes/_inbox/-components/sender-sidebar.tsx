@@ -25,7 +25,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
 export function SenderSidebar({ address, name: initialName }: { address: string; name?: string | null }) {
-  const { sender: initialSender, loading: senderLoading } = useSenderInfo(address, true);
+  const { sender: initialSender, loading: senderLoading } = useSenderInfo(address);
   const [sender, setSender] = useState<Sender | null>(null);
   const [recentEmails, setRecentEmails] = useState<Email[]>([]);
   const [domainInfo, setDomainInfo] = useState<Domain | null>(null);
@@ -56,10 +56,6 @@ export function SenderSidebar({ address, name: initialName }: { address: string;
   }, [address, fetchRecentEmails]);
 
   useEffect(() => {
-    const unlistenPromise = listen("emails-updated", () => {
-      fetchRecentEmails();
-    });
-
     const unlistenSenderPromise = listen("sender-updated", async (event) => {
         if (event.payload === address) {
             try {
@@ -72,10 +68,9 @@ export function SenderSidebar({ address, name: initialName }: { address: string;
     });
 
     return () => {
-      unlistenPromise.then(unlisten => unlisten());
       unlistenSenderPromise.then(unlisten => unlisten());
     };
-  }, [address, fetchRecentEmails]);
+  }, [address]);
 
   useEffect(() => {
     if (sender?.company) {

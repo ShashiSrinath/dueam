@@ -1,18 +1,18 @@
-use serde::{Deserialize, Serialize};
-use tauri::Manager;
 use crate::email_backend::accounts::google::GoogleAccount;
-use crate::email_backend::accounts::microsoft::MicrosoftAccount;
 use crate::email_backend::accounts::imap_smtp::ImapSmtpAccount;
+use crate::email_backend::accounts::microsoft::MicrosoftAccount;
 use crate::utils::security::EncryptedStore;
-use std::path::PathBuf;
-use std::sync::Arc;
-use sqlx::sqlite::SqlitePool;
-use email::account::config::AccountConfig;
 use email::account::config::oauth2::OAuth2Config;
 use email::account::config::passwd::PasswordConfig;
-use email::imap::config::{ImapConfig, ImapAuthConfig};
-use email::smtp::config::{SmtpConfig, SmtpAuthConfig};
+use email::account::config::AccountConfig;
+use email::imap::config::{ImapAuthConfig, ImapConfig};
+use email::smtp::config::{SmtpAuthConfig, SmtpConfig};
 use secret::Secret;
+use serde::{Deserialize, Serialize};
+use sqlx::sqlite::SqlitePool;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tauri::Manager;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type", content = "data")]
@@ -72,7 +72,9 @@ impl Account {
         }
     }
 
-    pub fn get_configs(&self) -> Result<(Arc<AccountConfig>, Arc<ImapConfig>, Arc<SmtpConfig>), String> {
+    pub fn get_configs(
+        &self,
+    ) -> Result<(Arc<AccountConfig>, Arc<ImapConfig>, Arc<SmtpConfig>), String> {
         match self {
             Account::Google(google) => {
                 let client_id = env!("GOOGLE_CLIENT_ID").to_string();
@@ -83,8 +85,16 @@ impl Account {
                     client_secret: Some(Secret::new_raw(client_secret)),
                     auth_url: "https://accounts.google.com/o/oauth2/auth".into(),
                     token_url: "https://www.googleapis.com/oauth2/v3/token".into(),
-                    access_token: google.access_token.as_ref().map(|t| Secret::new_raw(t.clone())).unwrap_or_default(),
-                    refresh_token: google.refresh_token.as_ref().map(|t| Secret::new_raw(t.clone())).unwrap_or_default(),
+                    access_token: google
+                        .access_token
+                        .as_ref()
+                        .map(|t| Secret::new_raw(t.clone()))
+                        .unwrap_or_default(),
+                    refresh_token: google
+                        .refresh_token
+                        .as_ref()
+                        .map(|t| Secret::new_raw(t.clone()))
+                        .unwrap_or_default(),
                     ..Default::default()
                 };
 
@@ -120,10 +130,19 @@ impl Account {
                 let oauth2_config = OAuth2Config {
                     client_id,
                     client_secret: client_secret.map(|s| Secret::new_raw(s.to_string())),
-                    auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize".into(),
+                    auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+                        .into(),
                     token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token".into(),
-                    access_token: microsoft.access_token.as_ref().map(|t| Secret::new_raw(t.clone())).unwrap_or_default(),
-                    refresh_token: microsoft.refresh_token.as_ref().map(|t| Secret::new_raw(t.clone())).unwrap_or_default(),
+                    access_token: microsoft
+                        .access_token
+                        .as_ref()
+                        .map(|t| Secret::new_raw(t.clone()))
+                        .unwrap_or_default(),
+                    refresh_token: microsoft
+                        .refresh_token
+                        .as_ref()
+                        .map(|t| Secret::new_raw(t.clone()))
+                        .unwrap_or_default(),
                     ..Default::default()
                 };
 
@@ -161,7 +180,9 @@ impl Account {
 
                 let imap_encryption = match imap_smtp.imap_encryption.as_str() {
                     "tls" => Some(email::tls::Encryption::Tls(email::tls::Tls::default())),
-                    "starttls" => Some(email::tls::Encryption::StartTls(email::tls::Tls::default())),
+                    "starttls" => {
+                        Some(email::tls::Encryption::StartTls(email::tls::Tls::default()))
+                    }
                     _ => None,
                 };
 
@@ -170,13 +191,17 @@ impl Account {
                     port: imap_smtp.imap_port,
                     login: imap_smtp.imap_username.clone(),
                     encryption: imap_encryption,
-                    auth: ImapAuthConfig::Password(PasswordConfig(Secret::new_raw(imap_smtp.password.clone().unwrap_or_default()))),
+                    auth: ImapAuthConfig::Password(PasswordConfig(Secret::new_raw(
+                        imap_smtp.password.clone().unwrap_or_default(),
+                    ))),
                     ..Default::default()
                 });
 
                 let smtp_encryption = match imap_smtp.smtp_encryption.as_str() {
                     "tls" => Some(email::tls::Encryption::Tls(email::tls::Tls::default())),
-                    "starttls" => Some(email::tls::Encryption::StartTls(email::tls::Tls::default())),
+                    "starttls" => {
+                        Some(email::tls::Encryption::StartTls(email::tls::Tls::default()))
+                    }
                     _ => None,
                 };
 
@@ -236,7 +261,9 @@ impl<R: tauri::Runtime> AccountManager<R> {
             return path.clone();
         }
 
-        self.app_handle.path().app_data_dir()
+        self.app_handle
+            .path()
+            .app_data_dir()
             .expect("Failed to get app data dir")
             .join("accounts.json.enc")
     }
@@ -248,18 +275,18 @@ impl<R: tauri::Runtime> AccountManager<R> {
         }
 
         let data = self.store.load(path)?;
-        let mut registry: AccountRegistry = serde_json::from_slice(&data).map_err(|e| e.to_string())?;
+        let mut registry: AccountRegistry =
+            serde_json::from_slice(&data).map_err(|e| e.to_string())?;
 
         let pool = self.app_handle.state::<SqlitePool>();
 
         for account in &mut registry.accounts {
-            let row: Option<(i64, Option<String>, Option<String>)> = sqlx::query_as(
-                "SELECT id, name, picture FROM accounts WHERE email = ?"
-            )
-            .bind(account.email())
-            .fetch_optional(&*pool)
-            .await
-            .map_err(|e| e.to_string())?;
+            let row: Option<(i64, Option<String>, Option<String>)> =
+                sqlx::query_as("SELECT id, name, picture FROM accounts WHERE email = ?")
+                    .bind(account.email())
+                    .fetch_optional(&*pool)
+                    .await
+                    .map_err(|e| e.to_string())?;
 
             if let Some((id, name, picture)) = row {
                 match account {
@@ -286,7 +313,9 @@ impl<R: tauri::Runtime> AccountManager<R> {
 
     pub async fn get_account_by_id(&self, id: i64) -> Result<Account, String> {
         let registry = self.load().await?;
-        registry.accounts.into_iter()
+        registry
+            .accounts
+            .into_iter()
             .find(|a| a.id() == Some(id))
             .ok_or_else(|| format!("Account with ID {} not found", id))
     }
@@ -299,10 +328,12 @@ impl<R: tauri::Runtime> AccountManager<R> {
 
     pub async fn refresh_access_token(&self, email: &str) -> Result<String, String> {
         let mut registry = self.load().await?;
-        let account = registry.accounts.iter_mut()
+        let account = registry
+            .accounts
+            .iter_mut()
             .find(|a| a.email() == email)
             .ok_or_else(|| format!("Account {} not found", email))?;
-            
+
         match account {
             Account::Google(google) => {
                 let client_id = env!("GOOGLE_CLIENT_ID").to_string();
@@ -313,22 +344,33 @@ impl<R: tauri::Runtime> AccountManager<R> {
                     client_secret: Some(Secret::new_raw(client_secret)),
                     auth_url: "https://accounts.google.com/o/oauth2/auth".into(),
                     token_url: "https://www.googleapis.com/oauth2/v3/token".into(),
-                    access_token: google.access_token.as_ref().map(|t| Secret::new_raw(t.clone())).unwrap_or_default(),
-                    refresh_token: google.refresh_token.as_ref().map(|t| Secret::new_raw(t.clone())).unwrap_or_default(),
+                    access_token: google
+                        .access_token
+                        .as_ref()
+                        .map(|t| Secret::new_raw(t.clone()))
+                        .unwrap_or_default(),
+                    refresh_token: google
+                        .refresh_token
+                        .as_ref()
+                        .map(|t| Secret::new_raw(t.clone()))
+                        .unwrap_or_default(),
                     ..Default::default()
                 };
 
-                let (access_token, new_refresh_token) = oauth2_config.refresh_access_token().await.map_err(|e| e.to_string())?;
-                
+                let (access_token, new_refresh_token) = oauth2_config
+                    .refresh_access_token()
+                    .await
+                    .map_err(|e| e.to_string())?;
+
                 google.access_token = Some(access_token.clone());
                 if let Some(new_refresh) = new_refresh_token {
                     google.refresh_token = Some(new_refresh);
                 }
-                
+
                 let access_token_val = access_token;
-                
+
                 self.save(&registry).await?;
-                
+
                 Ok(access_token_val)
             }
             Account::Microsoft(microsoft) => {
@@ -338,24 +380,36 @@ impl<R: tauri::Runtime> AccountManager<R> {
                 let oauth2_config = OAuth2Config {
                     client_id,
                     client_secret: client_secret.map(|s| Secret::new_raw(s.to_string())),
-                    auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize".into(),
+                    auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+                        .into(),
                     token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token".into(),
-                    access_token: microsoft.access_token.as_ref().map(|t| Secret::new_raw(t.clone())).unwrap_or_default(),
-                    refresh_token: microsoft.refresh_token.as_ref().map(|t| Secret::new_raw(t.clone())).unwrap_or_default(),
+                    access_token: microsoft
+                        .access_token
+                        .as_ref()
+                        .map(|t| Secret::new_raw(t.clone()))
+                        .unwrap_or_default(),
+                    refresh_token: microsoft
+                        .refresh_token
+                        .as_ref()
+                        .map(|t| Secret::new_raw(t.clone()))
+                        .unwrap_or_default(),
                     ..Default::default()
                 };
 
-                let (access_token, new_refresh_token) = oauth2_config.refresh_access_token().await.map_err(|e| e.to_string())?;
-                
+                let (access_token, new_refresh_token) = oauth2_config
+                    .refresh_access_token()
+                    .await
+                    .map_err(|e| e.to_string())?;
+
                 microsoft.access_token = Some(access_token.clone());
                 if let Some(new_refresh) = new_refresh_token {
                     microsoft.refresh_token = Some(new_refresh);
                 }
-                
+
                 let access_token_val = access_token;
-                
+
                 self.save(&registry).await?;
-                
+
                 Ok(access_token_val)
             }
             Account::ImapSmtp(_) => Err("IMAP/SMTP accounts do not support token refresh".into()),
@@ -369,7 +423,7 @@ impl<R: tauri::Runtime> AccountManager<R> {
         let row: (i64,) = sqlx::query_as(
             "INSERT INTO accounts (email, account_type, name, picture) VALUES (?, ?, ?, ?)
              ON CONFLICT(email) DO UPDATE SET name=excluded.name, picture=excluded.picture
-             RETURNING id"
+             RETURNING id",
         )
         .bind(account.email())
         .bind(account.account_type())
@@ -419,8 +473,16 @@ impl<R: tauri::Runtime> AccountManager<R> {
     }
 
     #[cfg(test)]
-    pub fn new_test(app_handle: tauri::AppHandle<R>, store: EncryptedStore, storage_path: Option<PathBuf>) -> Self {
-        Self { app_handle, store, storage_path_override: storage_path }
+    pub fn new_test(
+        app_handle: tauri::AppHandle<R>,
+        store: EncryptedStore,
+        storage_path: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            app_handle,
+            store,
+            storage_path_override: storage_path,
+        }
     }
 }
 
@@ -477,7 +539,10 @@ mod tests {
             refresh_token: Some("refresh".to_string()),
         });
 
-        manager.add_account(account).await.expect("Failed to add account");
+        manager
+            .add_account(account)
+            .await
+            .expect("Failed to add account");
 
         let registry = manager.load().await.expect("Failed to load accounts");
         assert_eq!(registry.accounts.len(), 1);

@@ -1,12 +1,12 @@
-use tauri::{Manager, Emitter};
-use sqlx::SqlitePool;
-use chrono::Utc;
-use std::collections::HashMap;
-use crate::email_backend::enrichment::types::{Sender, Domain};
-use crate::email_backend::enrichment::providers::*;
-use crate::email_backend::enrichment::people::*;
-use crate::email_backend::accounts::manager::{AccountManager, Account};
+use crate::email_backend::accounts::manager::{Account, AccountManager};
 use crate::email_backend::emails::commands::Email;
+use crate::email_backend::enrichment::people::*;
+use crate::email_backend::enrichment::providers::*;
+use crate::email_backend::enrichment::types::{Domain, Sender};
+use chrono::Utc;
+use sqlx::SqlitePool;
+use std::collections::HashMap;
+use tauri::{Emitter, Manager};
 
 #[tauri::command]
 pub async fn search_contacts<R: tauri::Runtime>(
@@ -27,7 +27,7 @@ pub async fn search_contacts<R: tauri::Runtime>(
         .filter(|t| !t.is_empty())
         .map(|t| format!("\"{}\"*", t.replace("\"", "\"\"")))
         .collect();
-    
+
     let fts_query = if tokens.len() > 1 {
         tokens.join(" ")
     } else if !tokens.is_empty() {
@@ -63,7 +63,7 @@ pub async fn search_contacts<R: tauri::Runtime>(
             s.is_contact DESC,
             m.fts_match DESC,
             m.rank
-         LIMIT ?"
+         LIMIT ?",
     )
     .bind(&fts_query)
     .bind(format!("%{}%", clean_query)) // LIKE name
@@ -92,7 +92,6 @@ pub async fn sync_contacts_internal<R: tauri::Runtime>(
     log::info!("Starting background contact sync");
     let manager = AccountManager::new(app_handle).await?;
     let registry = manager.load().await?;
-    let pool = app_handle.state::<SqlitePool>();
 
     for account in registry.accounts {
         if let Account::Google(google) = account {
@@ -100,7 +99,11 @@ pub async fn sync_contacts_internal<R: tauri::Runtime>(
             let token = match manager.refresh_access_token(&email).await {
                 Ok(t) => t,
                 Err(e) => {
-                    log::error!("Failed to refresh token for contact sync ({}): {}", email, e);
+                    log::error!(
+                        "Failed to refresh token for contact sync ({}): {}",
+                        email,
+                        e
+                    );
                     continue;
                 }
             };
@@ -121,12 +124,13 @@ async fn sync_google_contacts<R: tauri::Runtime>(
 ) -> Result<(), String> {
     let client = reqwest::Client::new();
     let pool = app_handle.state::<SqlitePool>();
-    
+
     let mut next_page_token: Option<String> = None;
     let mut total_synced = 0;
 
     loop {
-        let mut request = client.get("https://people.googleapis.com/v1/people/me/connections")
+        let mut request = client
+            .get("https://people.googleapis.com/v1/people/me/connections")
             .query(&[
                 ("personFields", "names,emailAddresses,photos"),
                 ("pageSize", "100"),
@@ -144,12 +148,20 @@ async fn sync_google_contacts<R: tauri::Runtime>(
         }
 
         let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-        
+
         if let Some(connections) = data["connections"].as_array() {
             for person in connections {
-                let name = person["names"][0]["displayName"].as_str().map(|s| s.to_string());
-                let avatar_url = person["photos"].as_array()
-                    .and_then(|photos| photos.iter().find(|p| p["metadata"]["primary"].as_bool().unwrap_or(false) || p["metadata"]["source"]["type"].as_str() == Some("CONTACT")))
+                let name = person["names"][0]["displayName"]
+                    .as_str()
+                    .map(|s| s.to_string());
+                let avatar_url = person["photos"]
+                    .as_array()
+                    .and_then(|photos| {
+                        photos.iter().find(|p| {
+                            p["metadata"]["primary"].as_bool().unwrap_or(false)
+                                || p["metadata"]["source"]["type"].as_str() == Some("CONTACT")
+                        })
+                    })
                     .and_then(|p| p["url"].as_str())
                     .map(|s| s.to_string());
 
@@ -157,7 +169,7 @@ async fn sync_google_contacts<R: tauri::Runtime>(
                     for email_data in emails {
                         if let Some(address) = email_data["value"].as_str() {
                             let address = address.to_lowercase();
-                            
+
                             // Upsert into senders
                             sqlx::query(
                                 "INSERT INTO senders (address, name, avatar_url, is_contact, account_email, last_synced_at)
@@ -177,7 +189,7 @@ async fn sync_google_contacts<R: tauri::Runtime>(
                             .execute(&*pool)
                             .await
                             .map_err(|e| e.to_string())?;
-                            
+
                             total_synced += 1;
                         }
                     }
@@ -200,12 +212,14 @@ pub async fn save_recipients_as_contacts<R: tauri::Runtime>(
     recipients: Vec<String>,
 ) -> Result<(), String> {
     let pool = app_handle.state::<SqlitePool>();
-    
+
     for recipient in recipients {
         let recipient = recipient.trim().to_lowercase();
-        if recipient.is_empty() { continue; }
+        if recipient.is_empty() {
+            continue;
+        }
 
-        // We use INSERT OR IGNORE because we don't want to overwrite 
+        // We use INSERT OR IGNORE because we don't want to overwrite
         // existing enriched or synced contacts, just ensure they exist.
         // We set is_contact=1 because these are people we've interacted with.
         let _ = sqlx::query(
@@ -213,13 +227,13 @@ pub async fn save_recipients_as_contacts<R: tauri::Runtime>(
              VALUES (?, 1) 
              ON CONFLICT(address) DO UPDATE SET 
                 is_contact = 1,
-                updated_at = CURRENT_TIMESTAMP"
+                updated_at = CURRENT_TIMESTAMP",
         )
         .bind(&recipient)
         .execute(&*pool)
         .await;
     }
-    
+
     Ok(())
 }
 
@@ -255,10 +269,14 @@ pub async fn get_sender_info<R: tauri::Runtime>(
     address: String,
     manual_trigger: Option<bool>,
 ) -> Result<Option<Sender>, String> {
-    log::info!("get_sender_info called for {} (manual={:?})", address, manual_trigger);
+    log::info!(
+        "get_sender_info called for {} (manual={:?})",
+        address,
+        manual_trigger
+    );
     let pool = app_handle.state::<SqlitePool>();
     let manual = manual_trigger.unwrap_or(false);
-    
+
     let sender = sqlx::query_as::<_, Sender>("SELECT * FROM senders WHERE address = ?")
         .bind(&address)
         .fetch_optional(&*pool)
@@ -280,7 +298,12 @@ pub async fn get_sender_info<R: tauri::Runtime>(
             log::info!("Returning cached sender info for {}", address);
             return Ok(Some(s));
         }
-        log::info!("Sender info for {} needs update (stale={}, manual_ai={})", address, is_stale, needs_manual_ai);
+        log::info!(
+            "Sender info for {} needs update (stale={}, manual_ai={})",
+            address,
+            is_stale,
+            needs_manual_ai
+        );
     } else {
         log::info!("Sender {} not found in DB, enriching", address);
     }
@@ -307,8 +330,10 @@ pub async fn update_sender_info<R: tauri::Runtime>(
     sender: Sender,
 ) -> Result<(), String> {
     let pool = app_handle.state::<SqlitePool>();
-    
-    let is_verified = sender.github_handle.is_some() || sender.twitter_handle.is_some() || sender.linkedin_handle.is_some();
+
+    let is_verified = sender.github_handle.is_some()
+        || sender.twitter_handle.is_some()
+        || sender.linkedin_handle.is_some();
 
     sqlx::query(
         "UPDATE senders SET
@@ -323,7 +348,7 @@ pub async fn update_sender_info<R: tauri::Runtime>(
             linkedin_handle = ?,
             is_verified = ?,
             updated_at = CURRENT_TIMESTAMP
-         WHERE address = ?"
+         WHERE address = ?",
     )
     .bind(&sender.name)
     .bind(&sender.job_title)
@@ -365,7 +390,11 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
     address: String,
     manual_trigger: bool,
 ) -> Result<Sender, String> {
-    log::info!("Starting enrichment for {} (manual={})", address, manual_trigger);
+    log::info!(
+        "Starting enrichment for {} (manual={})",
+        address,
+        manual_trigger
+    );
     let pool = app_handle.state::<SqlitePool>();
 
     let domain_name = extract_domain(&address);
@@ -404,11 +433,13 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
                         if let Some(t) = &g.access_token {
                             google_accounts.push((g.email.clone(), t.clone()));
                         }
-                        own_info.insert(g.email.to_lowercase(), (g.name.clone(), g.picture.clone()));
+                        own_info
+                            .insert(g.email.to_lowercase(), (g.name.clone(), g.picture.clone()));
                     }
                     crate::email_backend::accounts::manager::Account::Microsoft(m) => {
                         // Microsoft also uses access tokens, could be used for People API in future
-                        own_info.insert(m.email.to_lowercase(), (m.name.clone(), m.picture.clone()));
+                        own_info
+                            .insert(m.email.to_lowercase(), (m.name.clone(), m.picture.clone()));
                     }
                     crate::email_backend::accounts::manager::Account::ImapSmtp(i) => {
                         own_info.insert(i.email.to_lowercase(), (i.name.clone(), None));
@@ -420,8 +451,12 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
 
     // 0a. Use own account info if available
     if let Some((own_name, own_picture)) = own_info.get(&address.to_lowercase()) {
-        if name.is_none() { name = own_name.clone(); }
-        if avatar_url.is_none() { avatar_url = own_picture.clone(); }
+        if name.is_none() {
+            name = own_name.clone();
+        }
+        if avatar_url.is_none() {
+            avatar_url = own_picture.clone();
+        }
         is_personal_email = Some(true);
     }
 
@@ -441,16 +476,30 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
     // 1. People API Enrichment (Google, Microsoft, etc.)
     // We try this first because it's highly accurate for people we actually interact with.
     if !is_system_address(&address) && !google_accounts.is_empty() {
-        let google_provider = GooglePeopleProvider { accounts: google_accounts.clone() };
+        let google_provider = GooglePeopleProvider {
+            accounts: google_accounts.clone(),
+        };
         match google_provider.enrich(&address).await {
             Ok(Some(people_data)) => {
                 log::info!("Enriched {} using Google People API", address);
-                if let Some(n) = people_data.name { name = Some(n); }
-                if let Some(av) = people_data.avatar_url { avatar_url = Some(av); }
-                if let Some(jt) = people_data.job_title { job_title = Some(jt); }
-                if let Some(c) = people_data.company { company = Some(c); }
-                if let Some(b) = people_data.bio { bio = Some(b); }
-                if let Some(loc) = people_data.location { location = Some(loc); }
+                if let Some(n) = people_data.name {
+                    name = Some(n);
+                }
+                if let Some(av) = people_data.avatar_url {
+                    avatar_url = Some(av);
+                }
+                if let Some(jt) = people_data.job_title {
+                    job_title = Some(jt);
+                }
+                if let Some(c) = people_data.company {
+                    company = Some(c);
+                }
+                if let Some(b) = people_data.bio {
+                    bio = Some(b);
+                }
+                if let Some(loc) = people_data.location {
+                    location = Some(loc);
+                }
                 is_personal_email = Some(true);
             }
             Ok(None) => {
@@ -495,9 +544,9 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
                     // Helper to extract handle from URL
                     let extract_handle = |u: &str| -> Option<String> {
                         u.trim_end_matches('/')
-                         .split('/')
-                         .last()
-                         .map(|s| s.to_string())
+                            .split('/')
+                            .last()
+                            .map(|s| s.to_string())
                     };
 
                     // Process dedicated accounts first (more reliable)
@@ -518,9 +567,12 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
                             let val = url.value.to_lowercase();
                             if github_handle.is_none() && val.contains("github.com/") {
                                 github_handle = extract_handle(&url.value);
-                            } else if twitter_handle.is_none() && (val.contains("twitter.com/") || val.contains("x.com/")) {
+                            } else if twitter_handle.is_none()
+                                && (val.contains("twitter.com/") || val.contains("x.com/"))
+                            {
                                 twitter_handle = extract_handle(&url.value);
-                            } else if linkedin_handle.is_none() && val.contains("linkedin.com/in/") {
+                            } else if linkedin_handle.is_none() && val.contains("linkedin.com/in/")
+                            {
                                 linkedin_handle = extract_handle(&url.value);
                             } else if website_url.is_none() {
                                 website_url = Some(url.value.clone());
@@ -545,7 +597,7 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
                  VALUES (?, ?, ?)
                  ON CONFLICT(domain) DO UPDATE SET
                     logo_url = excluded.logo_url,
-                    last_enriched_at = excluded.last_enriched_at"
+                    last_enriched_at = excluded.last_enriched_at",
             )
             .bind(&root_domain)
             .bind(logo_url)
@@ -556,25 +608,38 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
     }
 
     // 4. AI Enrichment (optional and sparing)
-    let settings: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM settings WHERE key IN ('aiEnabled', 'aiSenderEnrichmentEnabled')")
-        .fetch_all(&*pool)
-        .await
-        .unwrap_or_default();
+    let settings: Vec<(String, String)> = sqlx::query_as(
+        "SELECT key, value FROM settings WHERE key IN ('aiEnabled', 'aiSenderEnrichmentEnabled')",
+    )
+    .fetch_all(&*pool)
+    .await
+    .unwrap_or_default();
 
     let settings_map: HashMap<String, String> = settings.into_iter().collect();
-    let ai_enabled = settings_map.get("aiEnabled").map(|v| v.as_str()).unwrap_or("false") == "true";
-    let ai_sender_enrichment_enabled = settings_map.get("aiSenderEnrichmentEnabled").map(|v| v.as_str()).unwrap_or("true") == "true";
+    let ai_enabled = settings_map
+        .get("aiEnabled")
+        .map(|v| v.as_str())
+        .unwrap_or("false")
+        == "true";
+    let ai_sender_enrichment_enabled = settings_map
+        .get("aiSenderEnrichmentEnabled")
+        .map(|v| v.as_str())
+        .unwrap_or("true")
+        == "true";
 
     // Check if we already have AI data to avoid redundant calls
-    let existing_ai_data: Option<(Option<String>, Option<chrono::DateTime<Utc>>)> = sqlx::query_as(
-        "SELECT job_title, ai_last_enriched_at FROM senders WHERE address = ?"
-    )
-    .bind(&address)
-    .fetch_optional(&*pool)
-    .await
-    .unwrap_or(None);
+    let existing_ai_data: Option<(Option<String>, Option<chrono::DateTime<Utc>>)> =
+        sqlx::query_as("SELECT job_title, ai_last_enriched_at FROM senders WHERE address = ?")
+            .bind(&address)
+            .fetch_optional(&*pool)
+            .await
+            .unwrap_or(None);
 
-    log::info!("AI enrichment status - global: {}, sender: {}", ai_enabled, ai_sender_enrichment_enabled);
+    log::info!(
+        "AI enrichment status - global: {}, sender: {}",
+        ai_enabled,
+        ai_sender_enrichment_enabled
+    );
 
     if ai_enabled && ai_sender_enrichment_enabled {
         let (existing_job, last_ai_run) = existing_ai_data.unwrap_or((None, None));
@@ -583,10 +648,11 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
         // Run AI enrichment ONLY if:
         // 1. We have no job title yet
         // 2. OR the last AI run was more than 90 days ago (LLM data changes slowly)
-        let mut needs_ai = existing_job.is_none() || match last_ai_run {
-            Some(last) => (Utc::now() - last).num_days() > 90,
-            None => true,
-        };
+        let mut needs_ai = existing_job.is_none()
+            || match last_ai_run {
+                Some(last) => (Utc::now() - last).num_days() > 90,
+                None => true,
+            };
 
         // Date-based optimization for automatic triggers
         if !manual_trigger && needs_ai {
@@ -597,7 +663,7 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
                     JOIN accounts a ON e.account_id = a.id
                     WHERE e.sender_address = ?
                       AND datetime(e.date) > datetime(a.created_at, '-14 days')
-                 )"
+                 )",
             )
             .bind(&address)
             .fetch_one(&*pool)
@@ -605,12 +671,20 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
             .unwrap_or((false,));
 
             if !is_recent.0 {
-                log::info!("Skipping automatic AI enrichment for {} - no recent emails", address);
+                log::info!(
+                    "Skipping automatic AI enrichment for {} - no recent emails",
+                    address
+                );
                 needs_ai = false;
             }
         }
 
-        log::info!("Need ai running ai for : {} (needs_ai={}, manual={})", &address, needs_ai, manual_trigger);
+        log::info!(
+            "Need ai running ai for : {} (needs_ai={}, manual={})",
+            &address,
+            needs_ai,
+            manual_trigger
+        );
 
         if needs_ai || (manual_trigger && last_ai_run.is_none()) {
             // Fetch last 5 email snippets for this sender
@@ -624,7 +698,11 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
 
             if !snippets.is_empty() {
                 log::info!("Sparingly triggering AI enrichment for {}", address);
-                if let Ok(ai_data) = crate::email_backend::llm::enrichment::enrich_sender_with_ai(app_handle, &address, snippets).await {
+                if let Ok(ai_data) = crate::email_backend::llm::enrichment::enrich_sender_with_ai(
+                    app_handle, &address, snippets,
+                )
+                .await
+                {
                     if name.is_none() {
                         if let Some(n) = ai_data["name"].as_str() {
                             name = Some(n.to_string());
@@ -673,7 +751,8 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
     }
 
     let now = Utc::now();
-    let is_verified = github_handle.is_some() || twitter_handle.is_some() || linkedin_handle.is_some();
+    let is_verified =
+        github_handle.is_some() || twitter_handle.is_some() || linkedin_handle.is_some();
 
     let sender = Sender {
         address: address.clone(),
@@ -750,7 +829,9 @@ async fn enrich_sender_internal<R: tauri::Runtime>(
     Ok(sender)
 }
 
-pub async fn proactive_enrichment<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) -> Result<(), String> {
+pub async fn proactive_enrichment<R: tauri::Runtime>(
+    app_handle: &tauri::AppHandle<R>,
+) -> Result<(), String> {
     let pool = app_handle.state::<SqlitePool>();
 
     // Find unique senders from emails that are NOT in senders table OR have no avatar OR use the old Clearbit provider
@@ -764,7 +845,7 @@ pub async fn proactive_enrichment<R: tauri::Runtime>(app_handle: &tauri::AppHand
             OR s.avatar_url IS NULL
             OR s.avatar_url LIKE '%clearbit.com%')
            AND datetime(e.date) > datetime(a.created_at, '-14 days')
-         LIMIT 100" // Process in batches to avoid overwhelming APIs
+         LIMIT 20",
     )
     .fetch_all(&*pool)
     .await

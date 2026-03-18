@@ -76,7 +76,7 @@ impl MicrosoftOAuth2Config {
             redirect_host,
             redirect_port,
         )
-            .map_err(Error::BuildOauthClientError)?;
+        .map_err(Error::BuildOauthClientError)?;
 
         let mut auth_code_grant = AuthorizationCodeGrant::new();
 
@@ -90,7 +90,10 @@ impl MicrosoftOAuth2Config {
 
         let (redirect_url, csrf_token) = auth_code_grant.get_redirect_url(&client);
 
-        app_handle.opener().open_url(redirect_url, None::<&str>).expect("Error when opening oauth url");
+        app_handle
+            .opener()
+            .open_url(redirect_url, None::<&str>)
+            .expect("Error when opening oauth url");
 
         let (access_token, refresh_token) = auth_code_grant
             .wait_for_redirection(&client, csrf_token)
@@ -111,23 +114,37 @@ impl MicrosoftOAuth2Config {
             .bearer_auth(&access_token)
             .send()
             .await
-            .map_err(|e| Error::GetAccountConfigNotFoundError(format!("Failed to send userinfo request: {}", e)))?;
+            .map_err(|e| {
+                Error::GetAccountConfigNotFoundError(format!(
+                    "Failed to send userinfo request: {}",
+                    e
+                ))
+            })?;
 
         let status = response.status();
-        let user_info: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| Error::GetAccountConfigNotFoundError(format!("Failed to parse userinfo JSON: {}", e)))?;
+        let user_info: serde_json::Value = response.json().await.map_err(|e| {
+            Error::GetAccountConfigNotFoundError(format!("Failed to parse userinfo JSON: {}", e))
+        })?;
 
         if !status.is_success() {
-            return Err(Error::GetAccountConfigNotFoundError(format!("Graph API error ({}): {}", status, user_info)));
+            return Err(Error::GetAccountConfigNotFoundError(format!(
+                "Graph API error ({}): {}",
+                status, user_info
+            )));
         }
 
-        let email = user_info["mail"].as_str()
+        let email = user_info["mail"]
+            .as_str()
             .or_else(|| user_info["userPrincipalName"].as_str())
-            .ok_or_else(|| Error::GetAccountConfigNotFoundError(format!("Email not found in Graph response: {}", user_info)))?.to_string();
+            .ok_or_else(|| {
+                Error::GetAccountConfigNotFoundError(format!(
+                    "Email not found in Graph response: {}",
+                    user_info
+                ))
+            })?
+            .to_string();
         let name = user_info["displayName"].as_str().map(|s| s.to_string());
-        
+
         // Pictures are a bit more complex with Graph API, skipping for now or adding a placeholder
         let picture = None;
 
@@ -155,32 +172,40 @@ pub async fn login_with_microsoft(app_handle: &AppHandle) {
     let res = account_config.get_url(app_handle).await;
 
     match res {
-        Ok(account) => {
-            match AccountManager::new(app_handle).await {
-                Ok(manager) => {
-                    if let Err(e) = manager.add_account(Account::Microsoft(account.clone())).await {
-                        let _ = app_handle.emit("microsoft-account-error", e);
-                    } else {
-                        let registry = manager.load().await.map_err(|e| e.to_string()).unwrap();
-                        let added_account = registry.accounts.iter().find(|a| a.email() == account.email).unwrap().clone();
-
-                        if let Some(sync_engine) = app_handle.try_state::<crate::email_backend::sync::SyncEngine>() {
-                            sync_engine.trigger_sync_for_account(added_account);
-                        }
-
-                        let _ = app_handle.emit("emails-updated", ());
-
-                        let mut public_account = account;
-                        public_account.access_token = None;
-                        public_account.refresh_token = None;
-                        let _ = app_handle.emit("microsoft-account-added", public_account);
-                    }
-                }
-                Err(e) => {
+        Ok(account) => match AccountManager::new(app_handle).await {
+            Ok(manager) => {
+                if let Err(e) = manager
+                    .add_account(Account::Microsoft(account.clone()))
+                    .await
+                {
                     let _ = app_handle.emit("microsoft-account-error", e);
+                } else {
+                    let registry = manager.load().await.map_err(|e| e.to_string()).unwrap();
+                    let added_account = registry
+                        .accounts
+                        .iter()
+                        .find(|a| a.email() == account.email)
+                        .unwrap()
+                        .clone();
+
+                    if let Some(sync_engine) =
+                        app_handle.try_state::<crate::email_backend::sync::SyncEngine>()
+                    {
+                        sync_engine.trigger_sync_for_account(added_account);
+                    }
+
+                    let _ = app_handle.emit("emails-updated", ());
+
+                    let mut public_account = account;
+                    public_account.access_token = None;
+                    public_account.refresh_token = None;
+                    let _ = app_handle.emit("microsoft-account-added", public_account);
                 }
             }
-        }
+            Err(e) => {
+                let _ = app_handle.emit("microsoft-account-error", e);
+            }
+        },
         Err(e) => {
             let _ = app_handle.emit("microsoft-account-error", e.to_string());
         }

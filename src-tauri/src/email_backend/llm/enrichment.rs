@@ -1,7 +1,9 @@
-use serde_json::{Value, json};
-use log::{info, error, debug, warn};
+use log::{debug, error, info, warn};
+use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use tauri::Manager;
+
+use crate::email_backend::llm::client::shared_client;
 
 pub async fn enrich_sender_with_ai<R: tauri::Runtime>(
     app_handle: &tauri::AppHandle<R>,
@@ -9,28 +11,38 @@ pub async fn enrich_sender_with_ai<R: tauri::Runtime>(
     email_snippets: Vec<String>,
 ) -> Result<Value, String> {
     debug!("Starting AI enrichment for sender: {}", sender_address);
-    
+
     let mut last_error = String::new();
     let max_retries = 2;
 
     for attempt in 1..=max_retries {
         match try_enrich_sender_direct(app_handle, sender_address, &email_snippets).await {
             Ok(json_val) => {
-                info!("Successfully enriched sender: {} (attempt {})", sender_address, attempt);
+                info!(
+                    "Successfully enriched sender: {} (attempt {})",
+                    sender_address, attempt
+                );
                 return Ok(json_val);
             }
             Err(e) => {
-                warn!("AI enrichment attempt {} failed for {}: {}", attempt, sender_address, e);
+                warn!(
+                    "AI enrichment attempt {} failed for {}: {}",
+                    attempt, sender_address, e
+                );
                 last_error = e;
                 // Small delay before retry
                 if attempt < max_retries {
-                    tokio::time::sleep(std::time::Duration::from_millis(1000 * attempt as u64)).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(1000 * attempt as u64))
+                        .await;
                 }
             }
         }
     }
 
-    error!("AI enrichment failed for {} after {} attempts. Last error: {}", sender_address, max_retries, last_error);
+    error!(
+        "AI enrichment failed for {} after {} attempts. Last error: {}",
+        sender_address, max_retries, last_error
+    );
     Err(last_error)
 }
 
@@ -40,12 +52,14 @@ async fn try_enrich_sender_direct<R: tauri::Runtime>(
     email_snippets: &[String],
 ) -> Result<Value, String> {
     let pool = app_handle.state::<SqlitePool>();
-    
-    let rows: Vec<(String, String)> = sqlx::query_as::<_, (String, String)>("SELECT key, value FROM settings WHERE key IN ('aiApiKey', 'aiBaseUrl', 'aiModel')")
-        .fetch_all(&*pool)
-        .await
-        .map_err(|e| e.to_string())?;
-        
+
+    let rows: Vec<(String, String)> = sqlx::query_as::<_, (String, String)>(
+        "SELECT key, value FROM settings WHERE key IN ('aiApiKey', 'aiBaseUrl', 'aiModel')",
+    )
+    .fetch_all(&*pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
     let mut api_key = String::new();
     let mut base_url = String::from("https://api.openai.com/v1");
     let mut model = String::new();
@@ -64,7 +78,6 @@ async fn try_enrich_sender_direct<R: tauri::Runtime>(
         return Err("AI API Key or Model not configured".to_string());
     }
 
-    let client = reqwest::Client::new();
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
     let emails_combined = email_snippets.join("\n---\n");
@@ -116,7 +129,8 @@ JSON Structure:
         "stream": false
     });
 
-    let resp = client.post(&url)
+    let resp = shared_client()
+        .post(&url)
         .header("Authorization", format!("Bearer {}", api_key))
         .json(&body)
         .send()
@@ -129,19 +143,32 @@ JSON Structure:
         return Err(format!("AI API error ({}): {}", status, err_text));
     }
 
-    let response_json: Value = resp.json().await.map_err(|e| format!("Failed to parse response JSON: {}", e))?;
-    
+    let response_json: Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response JSON: {}", e))?;
+
     let ai_content = response_json["choices"][0]["message"]["content"]
         .as_str()
         .ok_or_else(|| format!("Unexpected AI response structure: {:?}", response_json))?;
 
-    info!("Raw AI response for {}: {}", sender_address, ai_content);
+    debug!(
+        "Received AI enrichment response for {} ({} chars)",
+        sender_address,
+        ai_content.len()
+    );
 
     let cleaned_response = extract_json(ai_content);
-    
+
     match serde_json::from_str::<Value>(&cleaned_response) {
         Ok(json_val) => {
-            let required_keys = ["name", "job_title", "company", "is_personal_email", "is_automated_mailer"];
+            let required_keys = [
+                "name",
+                "job_title",
+                "company",
+                "is_personal_email",
+                "is_automated_mailer",
+            ];
             for key in required_keys {
                 if json_val.get(key).is_none() {
                     return Err(format!("Missing required key '{}' in AI response", key));
@@ -149,9 +176,10 @@ JSON Structure:
             }
             Ok(json_val)
         }
-        Err(e) => {
-            Err(format!("Failed to parse JSON: {}. Cleaned response: {}", e, cleaned_response))
-        }
+        Err(e) => Err(format!(
+            "Failed to parse JSON: {}. Cleaned response: {}",
+            e, cleaned_response
+        )),
     }
 }
 
@@ -161,9 +189,9 @@ fn extract_json(s: &str) -> String {
         s[start..=end].to_string()
     } else {
         s.trim_start_matches("```json")
-         .trim_start_matches("```")
-         .trim_end_matches("```")
-         .trim()
-         .to_string()
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim()
+            .to_string()
     }
 }

@@ -1,6 +1,6 @@
+use addr::parse_domain_name;
 use md5;
 use serde::{Deserialize, Serialize};
-use addr::parse_domain_name;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GravatarProfile {
@@ -51,7 +51,10 @@ pub fn get_email_hash(email: &str) -> String {
 }
 
 pub fn get_gravatar_url(email: &str) -> String {
-    format!("https://www.gravatar.com/avatar/{}?d=404", get_email_hash(email))
+    format!(
+        "https://www.gravatar.com/avatar/{}?d=404",
+        get_email_hash(email)
+    )
 }
 
 pub fn get_gravatar_profile_url(email: &str) -> String {
@@ -59,7 +62,10 @@ pub fn get_gravatar_profile_url(email: &str) -> String {
 }
 
 pub fn get_favicon_url(domain: &str) -> String {
-    format!("https://www.google.com/s2/favicons?domain={}&sz=128", domain)
+    format!(
+        "https://www.google.com/s2/favicons?domain={}&sz=128",
+        domain
+    )
 }
 
 pub fn extract_domain(email: &str) -> Option<String> {
@@ -72,7 +78,7 @@ pub fn get_root_domain(domain: &str) -> String {
             return root.to_string();
         }
     }
-    
+
     // Fallback if parsing fails or it's just a TLD
     let parts: Vec<&str> = domain.split('.').collect();
     if parts.len() >= 2 {
@@ -84,10 +90,27 @@ pub fn get_root_domain(domain: &str) -> String {
 
 pub fn is_common_provider(domain: &str) -> bool {
     let common = [
-        "gmail.com", "googlemail.com", "yahoo.com", "hotmail.com", "outlook.com", 
-        "icloud.com", "me.com", "mac.com", "aol.com", "protonmail.com", "proton.me",
-        "mail.com", "zoho.com", "gmx.com", "yandex.com", "mail.ru", "live.com",
-        "msn.com", "qq.com", "163.com", "126.com"
+        "gmail.com",
+        "googlemail.com",
+        "yahoo.com",
+        "hotmail.com",
+        "outlook.com",
+        "icloud.com",
+        "me.com",
+        "mac.com",
+        "aol.com",
+        "protonmail.com",
+        "proton.me",
+        "mail.com",
+        "zoho.com",
+        "gmx.com",
+        "yandex.com",
+        "mail.ru",
+        "live.com",
+        "msn.com",
+        "qq.com",
+        "163.com",
+        "126.com",
     ];
     common.contains(&domain)
 }
@@ -95,9 +118,21 @@ pub fn is_common_provider(domain: &str) -> bool {
 pub fn is_system_address(address: &str) -> bool {
     let local_part = address.split('@').next().unwrap_or("").to_lowercase();
     let bots = [
-        "noreply", "no-reply", "notification", "notifications", "support", 
-        "info", "hello", "alert", "alerts", "news", "newsletter", "bot", 
-        "system", "security", "billing"
+        "noreply",
+        "no-reply",
+        "notification",
+        "notifications",
+        "support",
+        "info",
+        "hello",
+        "alert",
+        "alerts",
+        "news",
+        "newsletter",
+        "bot",
+        "system",
+        "security",
+        "billing",
     ];
     bots.iter().any(|&b| local_part.contains(b))
 }

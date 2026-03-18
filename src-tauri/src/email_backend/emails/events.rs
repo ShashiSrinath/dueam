@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::email_backend::emails::commands::Email;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload")]

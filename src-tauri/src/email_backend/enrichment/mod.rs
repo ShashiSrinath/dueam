@@ -1,6 +1,6 @@
 pub mod commands;
-pub mod types;
-pub mod providers;
 pub mod people;
+pub mod providers;
+pub mod types;
 
 pub use types::*;

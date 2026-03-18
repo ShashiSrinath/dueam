@@ -1,24 +1,42 @@
-use crate::email_backend::accounts::commands::{login_with_google, login_with_microsoft, add_imap_smtp_account, get_accounts, remove_account, verify_imap_smtp_credentials};
-use crate::email_backend::emails::commands::{get_emails, get_folders, refresh_folder, get_unified_counts, get_email_content, regenerate_summary, get_attachments, get_attachment_data, save_attachment_to_path, open_attachment, mark_as_read, move_to_trash, archive_emails, move_to_inbox, get_email_by_id, get_thread_emails, send_email, save_draft, get_drafts, delete_draft, get_draft_by_id, search_emails};
-use crate::email_backend::enrichment::commands::{get_sender_info, get_domain_info, get_emails_by_sender, regenerate_sender_info, update_sender_info, search_contacts, sync_contacts};
-use crate::email_backend::llm::commands::get_available_models;
+use std::sync::Arc;
+
 use crate::db::settings::{get_settings, update_setting};
-use crate::email_backend::sync::{SyncEngine, SyncWorker};
 use crate::db::setup::setup_database;
-use tauri::Manager;
+use crate::email_backend::accounts::commands::{
+    add_imap_smtp_account, get_accounts, login_with_google, login_with_microsoft, remove_account,
+    verify_imap_smtp_credentials,
+};
+use crate::email_backend::emails::commands::{
+    archive_emails, delete_draft, get_attachment_data, get_attachments, get_draft_by_id,
+    get_drafts, get_email_by_id, get_email_content, get_emails, get_folders, get_thread_emails,
+    get_unified_counts, mark_as_read, move_to_inbox, move_to_trash, open_attachment,
+    refresh_folder, regenerate_summary, save_attachment_to_path, save_draft, search_emails,
+    send_email,
+};
+use crate::email_backend::enrichment::commands::{
+    get_domain_info, get_emails_by_sender, get_sender_info, regenerate_sender_info,
+    search_contacts, sync_contacts, update_sender_info,
+};
+use crate::email_backend::llm::commands::get_available_models;
+use crate::email_backend::llm::controller::AiController;
+use crate::email_backend::sync::{SyncEngine, SyncWorker};
+use crate::email_backend::sync::worker::summarize_visible_emails;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::Manager;
 
+mod db;
 mod email_backend;
 mod utils;
-mod db;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
-                .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout))
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::Stdout,
+                ))
                 .level(log::LevelFilter::Warn)
                 .level_for("dueam_lib", log::LevelFilter::Info)
                 .level_for("langchain_rust", log::LevelFilter::Warn)
@@ -26,7 +44,7 @@ pub fn run() {
                 .level_for("sqlx", log::LevelFilter::Warn)
                 .level_for("tower", log::LevelFilter::Warn)
                 .level_for("hyper", log::LevelFilter::Warn)
-                .build()
+                .build(),
         )
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
@@ -86,11 +104,10 @@ pub fn run() {
                 .build(app)?;
 
             // Block on database setup to ensure it's ready before any commands run
-            let pool = tauri::async_runtime::block_on(async {
-                setup_database(&handle).await
-            }).expect("Failed to setup database");
+            let pool = tauri::async_runtime::block_on(async { setup_database(&handle).await })
+                .expect("Failed to setup database");
 
-            app.manage(pool);
+            app.manage(pool.clone());
 
             let sync_engine = SyncEngine::new(handle.clone());
             app.manage(sync_engine.clone());
@@ -102,6 +119,19 @@ pub fn run() {
             let sync_worker = SyncWorker::new(handle.clone());
             tauri::async_runtime::spawn(async move {
                 sync_worker.start().await;
+            });
+
+            let ai_controller = Arc::new(AiController::new());
+            let pool_clone = pool.clone();
+            tauri::async_runtime::block_on(async {
+                ai_controller.initialize(&pool_clone).await;
+            });
+            app.manage(ai_controller.clone());
+            let controller_clone = ai_controller.clone();
+            let pool_for_processor = pool.clone();
+            let handle_clone = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                controller_clone.start_processor(handle_clone, pool_for_processor).await;
             });
 
             Ok(())
@@ -144,7 +174,8 @@ pub fn run() {
             get_emails_by_sender,
             get_available_models,
             search_contacts,
-            sync_contacts
+            sync_contacts,
+            summarize_visible_emails
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

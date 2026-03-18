@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 
 export type Account = {
   type: "google" | "microsoft" | "imap_smtp";
@@ -421,17 +420,8 @@ export const useEmailStore = create<EmailState>((set, get) => ({
         set({ isInitialized: true });
       });
 
-    let timeout: ReturnType<typeof setTimeout> | null = null;
-    const unlistenPromise = listen("emails-updated", () => {
-      if (timeout) clearTimeout(timeout);
-      timeout = setTimeout(() => {
-        get().fetchAccountsAndFolders();
-      }, 500);
-    });
-
     return () => {
-      unlistenPromise.then((unlisten) => unlisten());
-      if (timeout) clearTimeout(timeout);
+      return;
     };
   },
 

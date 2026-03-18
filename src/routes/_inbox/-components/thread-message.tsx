@@ -22,6 +22,12 @@ import { AttachmentsList } from "./attachments-list";
 import { EmailBody } from "./email-body";
 import { ToolbarActions } from "./toolbar-actions";
 
+type EmailEvent =
+  | { type: "email-updated"; payload: { id: number } }
+  | { type: "emails-updated-bulk"; payload: { ids: number[] } }
+  | { type: "email-removed"; payload: { id: number } }
+  | { type: "emails-removed-bulk"; payload: { ids: number[] } };
+
 export function ThreadMessage({
   email: initialEmail,
   defaultExpanded,
@@ -77,7 +83,22 @@ export function ThreadMessage({
 
   useEffect(() => {
     // Listen for updates to this specific email (e.g. summary generated)
-    const unlistenPromise = listen("emails-updated", async () => {
+    const unlistenPromise = listen("emails-updated", async (event) => {
+      const payload = event.payload as EmailEvent | string | number | null;
+      const matchesEmail =
+        !!payload &&
+        typeof payload === "object" &&
+        (
+          (payload.type === "email-updated" && payload.payload.id === initialEmail.id) ||
+          (payload.type === "emails-updated-bulk" && payload.payload.ids.includes(initialEmail.id)) ||
+          (payload.type === "email-removed" && payload.payload.id === initialEmail.id) ||
+          (payload.type === "emails-removed-bulk" && payload.payload.ids.includes(initialEmail.id))
+        );
+
+      if (!matchesEmail) {
+        return;
+      }
+
       // Refresh this specific email's data to get the summary
       try {
         const updatedEmail = await invoke<Email>("get_email_by_id", { emailId: initialEmail.id });

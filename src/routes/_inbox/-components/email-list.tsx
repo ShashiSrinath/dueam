@@ -1,8 +1,9 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useMemo } from "react";
 import { Mail } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Email } from "@/lib/store";
 import { EmailListItem } from "./email-list-item";
+import { useVisibleEmailSummarization } from "@/hooks/use-visible-email-summarization";
 
 interface EmailListProps {
   emails: Email[];
@@ -36,6 +37,14 @@ export function EmailList({
 
   const virtualItems = virtualizer.getVirtualItems();
 
+  const visibleEmailIds = useMemo(() => {
+    return virtualItems
+      .map((virtualItem) => emails[virtualItem.index]?.id)
+      .filter((id): id is number => id !== undefined);
+  }, [virtualItems, emails]);
+
+  useVisibleEmailSummarization(visibleEmailIds);
+
   useEffect(() => {
     if (fetchNextPage && hasNextPage && virtualItems.length > 0) {
       const lastItem = virtualItems[virtualItems.length - 1];
@@ -62,9 +71,9 @@ export function EmailList({
       <div
         style={{
           height: `${virtualizer.getTotalSize()}px`,
-          width: '100%',
-          position: 'relative',
-          transform: 'translateZ(0)',
+          width: "100%",
+          position: "relative",
+          transform: "translateZ(0)",
         }}
       >
         {virtualItems.map((virtualItem) => {
@@ -72,7 +81,7 @@ export function EmailList({
           if (!email) return null;
           const isUnread = !email.flags.includes("seen");
           const isSelected = selectedIds.has(email.id);
-          
+
           return (
             <EmailListItem
               key={email.id}
@@ -88,7 +97,7 @@ export function EmailList({
           );
         })}
       </div>
-      
+
       {loadingEmails && emails.length > 0 && (
         <div className="p-4 text-center text-xs text-muted-foreground">
           Loading more emails...

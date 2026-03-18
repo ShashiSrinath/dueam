@@ -1,9 +1,9 @@
-use keyring::Entry;
-use rand::RngCore;
 use chacha20poly1305::{
     aead::{Aead, KeyInit},
-    ChaCha20Poly1305, Nonce
+    ChaCha20Poly1305, Nonce,
 };
+use keyring::Entry;
+use rand::RngCore;
 use std::fs;
 use std::path::PathBuf;
 
@@ -15,7 +15,7 @@ impl EncryptedStore {
     pub async fn new() -> Result<Self, String> {
         let key_hex = tokio::task::spawn_blocking(|| {
             let entry = Entry::new("dueam", "master-key").map_err(|e| e.to_string())?;
-            
+
             match entry.get_password() {
                 Ok(k) => Ok(k),
                 Err(keyring::Error::NoEntry) => {
@@ -27,12 +27,14 @@ impl EncryptedStore {
                 }
                 Err(e) => Err(e.to_string()),
             }
-        }).await.map_err(|e| e.to_string())??;
+        })
+        .await
+        .map_err(|e| e.to_string())??;
 
         let key_bytes = hex::decode(key_hex).map_err(|e| e.to_string())?;
         let mut key = [0u8; 32];
         key.copy_from_slice(&key_bytes);
-        
+
         Ok(Self { key })
     }
 
@@ -43,7 +45,7 @@ impl EncryptedStore {
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         let ciphertext = cipher.encrypt(nonce, data).map_err(|e| e.to_string())?;
-        
+
         // Combined file: [Nonce (12 bytes)][Ciphertext]
         let mut combined = nonce_bytes.to_vec();
         combined.extend_from_slice(&ciphertext);
@@ -90,7 +92,9 @@ mod tests {
         let file_path = dir.path().join("test.enc");
         let original_data = b"hello world secret data";
 
-        store.save(file_path.clone(), original_data).expect("Save failed");
+        store
+            .save(file_path.clone(), original_data)
+            .expect("Save failed");
         let decrypted_data = store.load(file_path).expect("Load failed");
 
         assert_eq!(original_data, decrypted_data.as_slice());
@@ -131,7 +135,9 @@ mod tests {
         let file_path = dir.path().join("test.enc");
         let original_data = b"secret data";
 
-        store1.save(file_path.clone(), original_data).expect("Save failed");
+        store1
+            .save(file_path.clone(), original_data)
+            .expect("Save failed");
         let result = store2.load(file_path);
 
         assert!(result.is_err());

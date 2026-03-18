@@ -65,7 +65,6 @@ impl GoogleOAuth2Config {
             None => OAuth2Config::get_first_available_port()?,
         };
 
-
         let client = Client::new(
             self.base.client_id.clone(),
             self.client_secret.clone(),
@@ -75,7 +74,7 @@ impl GoogleOAuth2Config {
             redirect_host,
             redirect_port,
         )
-            .map_err(Error::BuildOauthClientError)?;
+        .map_err(Error::BuildOauthClientError)?;
 
         let mut auth_code_grant = AuthorizationCodeGrant::new();
 
@@ -89,8 +88,10 @@ impl GoogleOAuth2Config {
 
         let (redirect_url, csrf_token) = auth_code_grant.get_redirect_url(&client);
 
-        app_handle.opener().open_url(redirect_url, None::<&str>).expect("Error when opening oauth url");
-
+        app_handle
+            .opener()
+            .open_url(redirect_url, None::<&str>)
+            .expect("Error when opening oauth url");
 
         let (access_token, refresh_token) = auth_code_grant
             .wait_for_redirection(&client, csrf_token)
@@ -109,7 +110,12 @@ impl GoogleOAuth2Config {
             .await
             .map_err(|e| Error::GetAccountConfigNotFoundError(e.to_string()))?;
 
-        let email = user_info["email"].as_str().ok_or_else(|| Error::GetAccountConfigNotFoundError("Email not found in userinfo".into()))?.to_string();
+        let email = user_info["email"]
+            .as_str()
+            .ok_or_else(|| {
+                Error::GetAccountConfigNotFoundError("Email not found in userinfo".into())
+            })?
+            .to_string();
         let name = user_info["name"].as_str().map(|s| s.to_string());
         let picture = user_info["picture"].as_str().map(|s| s.to_string());
 
@@ -136,37 +142,44 @@ pub async fn get_auth_url(app_handle: &AppHandle) {
     };
     let res = account_config.get_url(app_handle).await;
 
-        match res {
-            Ok(account) => {
-                match AccountManager::new(app_handle).await {
-                    Ok(manager) => {
-                        if let Err(e) = manager.add_account(Account::Google(account.clone())).await {
-                            let _ = app_handle.emit("google-account-error", e);
-                        } else {
-                            // Reload account to get the ID
-                            let registry = manager.load().await.map_err(|e| e.to_string()).unwrap();
-                            let added_account = registry.accounts.iter().find(|a| a.email() == account.email).unwrap().clone();
-
-                            // Trigger initial sync and start IDLE
-                            if let Some(sync_engine) = app_handle.try_state::<crate::email_backend::sync::SyncEngine>() {
-                                sync_engine.trigger_sync_for_account(added_account);
-                            }
-
-                            let _ = app_handle.emit("emails-updated", ());
-
-                            let mut public_account = account;
-                            public_account.access_token = None;
-                            public_account.refresh_token = None;
-                            let _ = app_handle.emit("google-account-added", public_account);
-                        }
-                    }
-                    Err(e) => {
+    match res {
+        Ok(account) => {
+            match AccountManager::new(app_handle).await {
+                Ok(manager) => {
+                    if let Err(e) = manager.add_account(Account::Google(account.clone())).await {
                         let _ = app_handle.emit("google-account-error", e);
+                    } else {
+                        // Reload account to get the ID
+                        let registry = manager.load().await.map_err(|e| e.to_string()).unwrap();
+                        let added_account = registry
+                            .accounts
+                            .iter()
+                            .find(|a| a.email() == account.email)
+                            .unwrap()
+                            .clone();
+
+                        // Trigger initial sync and start IDLE
+                        if let Some(sync_engine) =
+                            app_handle.try_state::<crate::email_backend::sync::SyncEngine>()
+                        {
+                            sync_engine.trigger_sync_for_account(added_account);
+                        }
+
+                        let _ = app_handle.emit("emails-updated", ());
+
+                        let mut public_account = account;
+                        public_account.access_token = None;
+                        public_account.refresh_token = None;
+                        let _ = app_handle.emit("google-account-added", public_account);
                     }
                 }
-            }
-            Err(e) => {
-                let _ = app_handle.emit("google-account-error", e.to_string());
+                Err(e) => {
+                    let _ = app_handle.emit("google-account-error", e);
+                }
             }
         }
+        Err(e) => {
+            let _ = app_handle.emit("google-account-error", e.to_string());
+        }
+    }
 }
